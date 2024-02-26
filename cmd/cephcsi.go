@@ -26,12 +26,12 @@ import (
 	"github.com/ceph/ceph-csi/internal/cephfs"
 	"github.com/ceph/ceph-csi/internal/controller"
 	"github.com/ceph/ceph-csi/internal/controller/persistentvolume"
+	"github.com/ceph/ceph-csi/internal/controller/volumesnapshot"
 	"github.com/ceph/ceph-csi/internal/liveness"
 	nfsdriver "github.com/ceph/ceph-csi/internal/nfs/driver"
 	rbddriver "github.com/ceph/ceph-csi/internal/rbd/driver"
 	"github.com/ceph/ceph-csi/internal/util"
 	"github.com/ceph/ceph-csi/internal/util/log"
-
 	"k8s.io/klog/v2"
 )
 
@@ -283,6 +283,7 @@ func setPIDLimit(conf *util.Config) {
 func initControllers() {
 	// Add list of controller here.
 	persistentvolume.Init()
+	volumesnapshot.Init()
 }
 
 func validateCloneDepthFlag(conf *util.Config) {

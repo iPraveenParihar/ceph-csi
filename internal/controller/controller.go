@@ -20,6 +20,10 @@ import (
 
 	"github.com/ceph/ceph-csi/internal/util/log"
 
+	snapapi "github.com/kubernetes-csi/external-snapshotter/client/v6/apis/volumesnapshot/v1"
+	apiruntime "k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	clientConfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -59,6 +63,11 @@ func addToManager(mgr manager.Manager, config Config) error {
 
 // Start will start all the registered managers.
 func Start(config Config) error {
+
+	scheme := apiruntime.NewScheme()
+	utilruntime.Must(snapapi.AddToScheme(scheme))
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+
 	electionID := config.DriverName + "-" + config.Namespace
 	opts := manager.Options{
 		LeaderElection: true,
@@ -67,6 +76,7 @@ func Start(config Config) error {
 		LeaderElectionNamespace:    config.Namespace,
 		LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
 		LeaderElectionID:           electionID,
+		Scheme: 				    scheme,
 	}
 	mgr, err := manager.New(clientConfig.GetConfigOrDie(), opts)
 	if err != nil {

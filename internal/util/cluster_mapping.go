@@ -187,3 +187,36 @@ func fetchMappedClusterIDAndMons(ctx context.Context,
 func FetchMappedClusterIDAndMons(ctx context.Context, clusterID string) (string, string, error) {
 	return fetchMappedClusterIDAndMons(ctx, clusterID, clusterMappingConfigFile, CsiConfigFile)
 }
+
+
+func fetchMappedRBDpoolID(ctx context.Context, clusterID, poolID string) (string, error) {
+	clusterMappingInfo, err := getClusterMappingInfo(clusterID, clusterMappingConfigFile)
+	if err != nil {
+		return "", err
+	}
+
+	if clusterMappingInfo != nil {
+		for _, cm := range *clusterMappingInfo {
+			for _, rbdPoolIDMap := range cm.RBDpoolIDMappingInfo {
+				for key, val := range rbdPoolIDMap {
+					mappedPoolID := GetMappedID(key, val, poolID)
+					if mappedPoolID == "" {
+						continue
+					}
+					log.DebugLog(ctx,
+						"found new RBD poolID mapping %q for existing poolID %q",
+						mappedPoolID,
+						poolID)
+
+					return mappedPoolID, nil
+				}
+			}
+		}
+	}
+
+	return poolID, nil
+}
+
+func FetchMappedRBDPoolID(ctx context.Context, clusterID, poolID string) (string, error) {
+	return fetchMappedRBDpoolID(ctx, clusterID, poolID)
+}

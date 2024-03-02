@@ -19,7 +19,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 
+	"github.com/ceph/ceph-csi/internal/journal"
 	"github.com/ceph/ceph-csi/internal/util"
 	"github.com/ceph/ceph-csi/internal/util/log"
 )
@@ -133,4 +135,153 @@ func undoSnapshotCloning(
 	err = undoSnapReservation(ctx, rbdSnap, cr)
 
 	return err
+}
+
+func RegenerateSnapJournal(
+	snapVolumeID,
+	clusterName,
+	owner,
+	requestName string,
+	cr *util.Credentials,
+) (string, error) {
+	ctx := context.Background()
+	var (
+		vi     util.CSIIdentifier
+		rbdVol *rbdVolume
+		err    error
+		// ok     bool
+	)
+
+	rbdVol = &rbdVolume{}
+	rbdVol.VolID = snapVolumeID
+	rbdVol.ClusterName = clusterName
+	rbdVol.Owner = owner
+
+	// TODO: need to figure out how to get the snap parent name
+	// For now, for testing using the volumeHandle to get UUID and then GetNameForUUID
+	// to get the parent image name
+	vi = util.CSIIdentifier{}
+	err = vi.DecomposeCSIID(rbdVol.VolID)
+	if err != nil {
+		return "", fmt.Errorf("%w: error decoding volume ID (%w) (%s)", ErrInvalidVolID, err, rbdVol.VolID)
+	}
+
+	// TODO: find a way to get kms config
+
+	rbdVol.Monitors, rbdVol.ClusterID, err = util.FetchMappedClusterIDAndMons(ctx, vi.ClusterID)
+	if err != nil {
+		return "", err
+	}
+
+	mappedPoolID, err := util.FetchMappedRBDPoolID(ctx, rbdVol.ClusterID, strconv.FormatInt(vi.LocationID, 10))
+	if err != nil {
+		return "", err
+	}
+	pID, err := strconv.ParseInt(mappedPoolID, 10, 64)
+	if err != nil {
+		return "", err
+	}
+	
+	// TODO: get Pool
+	poolName, err := util.GetPoolName(rbdVol.Monitors, cr, pID)
+	if err != nil {
+		return "", err
+	}
+	rbdVol.Pool = poolName
+
+	// TODO: get journal pool
+	rbdVol.JournalPool = rbdVol.Pool
+
+	log.DebugLog(ctx, "monitors: %v, clusterID: %s, pool: %s, journalPool: %s", rbdVol.Monitors, rbdVol.ClusterID, rbdVol.Pool, rbdVol.JournalPool)
+
+	err = rbdVol.Connect(cr)
+	if err != nil {
+		return "", err
+	}
+
+	snapJournal = journal.NewCSISnapshotJournal(CSIInstanceID)
+	s, err := snapJournal.Connect(rbdVol.Monitors, rbdVol.RadosNamespace, cr)
+	if err != nil {
+		return "", err
+	}
+	defer s.Destroy()
+
+	journalPoolID, imagePoolID, err := util.GetPoolIDs(ctx, rbdVol.Monitors, rbdVol.JournalPool, rbdVol.Pool, cr)
+	if err != nil {
+		return "", err
+	}
+
+	rbdVol.RequestName = requestName
+	// TODO: currently there is no field for name prefix in VolumeSnapshotContent
+	// one way of doing will be fetch the name prefix from its class name
+	rbdVol.NamePrefix = "csi-snap-"
+
+	imageData, err := s.CheckReservation(ctx, rbdVol.JournalPool, rbdVol.RequestName, rbdVol.NamePrefix, rbdVol.ParentName, "", util.EncryptionTypeNone)
+	if err != nil {
+		return "", err
+	}
+
+	if imageData != nil {
+		rbdVol.ReservedID = imageData.ImageUUID
+		rbdVol.ImageID = imageData.ImageAttributes.ImageID
+		rbdVol.Owner = imageData.ImageAttributes.Owner
+		rbdVol.RbdImageName = imageData.ImageAttributes.ImageName
+		if rbdVol.ImageID == "" {
+			err = rbdVol.storeImageID(ctx, s)
+			if err != nil {
+				return "", err
+			}
+		}
+
+		if rbdVol.Owner != owner {
+			err = s.ResetVolumeOwner(ctx, rbdVol.JournalPool, rbdVol.ReservedID, owner)
+			if err != nil {
+				return "", err
+			}
+		}
+		// TODO: Update Metadata
+
+		// As the omap already exists for this image ID return nil.
+		rbdVol.VolID, err = util.GenerateVolID(ctx, rbdVol.Monitors, cr, imagePoolID, rbdVol.Pool,
+			rbdVol.ClusterID, rbdVol.ReservedID, volIDVersion)
+		if err != nil {
+			return "", err
+		}
+
+		return rbdVol.VolID, nil
+
+	}
+
+	rbdVol.ReservedID, rbdVol.RbdImageName, err = s.ReserveName(
+		ctx, rbdVol.JournalPool, journalPoolID, rbdVol.Pool, imagePoolID,
+		rbdVol.RequestName, rbdVol.NamePrefix, rbdVol.ParentName, "", vi.ObjectUUID, rbdVol.Owner, "", util.EncryptionTypeNone,
+	)
+	if err != nil {
+		return "", err
+	}
+	log.DebugLog(ctx, "reservedID: %s, rbdImageName: %s", rbdVol.ReservedID, rbdVol.RbdImageName)
+
+	defer func() {
+		if err != nil {
+			undoErr := s.UndoReservation(ctx, rbdVol.JournalPool, rbdVol.Pool, rbdVol.RbdImageName, rbdVol.RequestName)
+			if undoErr != nil {
+				log.ErrorLog(ctx, "failed to undo reservation %s: %v", rbdVol, undoErr)
+			}
+		}
+	}()
+	rbdVol.VolID, err = util.GenerateVolID(ctx, rbdVol.Monitors, cr, imagePoolID, rbdVol.Pool, rbdVol.ClusterID, rbdVol.ReservedID, volIDVersion)
+	if err != nil {
+		return "", nil
+	}
+
+	log.DebugLog(ctx, "re-generated Volume ID (%s) and image name (%s) for request name (%s)",
+		rbdVol.VolID, rbdVol.RbdImageName, rbdVol.RequestName)
+	if rbdVol.ImageID == "" {
+		err = rbdVol.storeImageID(ctx, s)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	return rbdVol.VolID, nil
 }

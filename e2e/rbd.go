@@ -197,6 +197,11 @@ func validateRBDImageCount(f *framework.Framework, count int, pool string) {
 			count,
 			imageList)
 	}
+
+	for _, img := range imageList {
+		infoRBDImage(f, pool, img)
+		statusRBDImage(f, pool, img)
+	}
 }
 
 func formatImageMetaGetCmd(pool, image, key string) string {

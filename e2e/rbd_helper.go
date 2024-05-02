@@ -713,6 +713,34 @@ func listRBDImages(f *framework.Framework, pool string) ([]string, error) {
 	return imgInfos, nil
 }
 
+func infoRBDImage(f *framework.Framework, poolName, imageName string) error {
+	stdOut, stdErr, err := execCommandInToolBoxPod(f,
+		"rbd info --format=json "+imageSpec(poolName, imageName), rookNamespace)
+	if err != nil {
+		return err
+	}
+	if stdErr != "" {
+		return fmt.Errorf("failed to get rbd info %v", stdErr)
+	}
+	framework.Logf("image %s info: %s", imageName, stdOut)
+
+	return nil
+}
+
+func statusRBDImage(f *framework.Framework, poolName, imageName string) error {
+	stdOut, stdErr, err := execCommandInToolBoxPod(f,
+		"rbd status --format=json "+imageSpec(poolName, imageName), rookNamespace)
+	if err != nil {
+		return err
+	}
+	if stdErr != "" {
+		return fmt.Errorf("failed to get rbd status: %v", stdErr)
+	}
+	framework.Logf("image %s status: %s", imageName, stdOut)
+
+	return nil
+}
+
 func deleteBackingRBDImage(f *framework.Framework, pvc *v1.PersistentVolumeClaim) error {
 	imageData, err := getImageInfoFromPVC(pvc.Namespace, pvc.Name, f)
 	if err != nil {

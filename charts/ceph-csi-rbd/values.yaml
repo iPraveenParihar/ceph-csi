@@ -248,7 +248,8 @@ provisioner:
     resources: {}
     ## For further options, check
     ## https://github.com/kubernetes-csi/external-provisioner#command-line-options
-    extraArgs: []
+    extraArgs:
+      - 'immediate-topology=false'
 
   # set metadata on volume
   setmetadata: true

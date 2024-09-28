@@ -50,6 +50,9 @@ var (
 
 	// FIXME: some tests change the subvolumegroup to "e2e".
 	defaultSubvolumegroup = "csi"
+
+	operatorNFSDeploymentName  = "nfs.csi.ceph.com-ctrlplugin"
+	operatorNFSDaemonsetName   = "nfs.csi.ceph.com-nodeplugin"
 )
 
 func deployNFSPlugin(f *framework.Framework) {
@@ -242,6 +245,10 @@ var _ = Describe("nfs", func() {
 			Skip("Skipping NFS E2E")
 		}
 		c = f.ClientSet
+		if operatorDeployment {
+			nfsDeploymentName = operatorNFSDeploymentName
+			nfsDeamonSetName = operatorNFSDaemonsetName
+		}
 		if deployNFS {
 			if cephCSINamespace != defaultNs {
 				err := createNamespace(c, cephCSINamespace)

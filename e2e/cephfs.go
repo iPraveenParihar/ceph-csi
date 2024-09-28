@@ -46,6 +46,9 @@ var (
 	subvolumegroup        = "e2e"
 	fileSystemName        = "myfs"
 	fileSystemPoolName    = "myfs-replicated"
+
+	operatorCephFSDeploymentName  = "cephfs.csi.ceph.com-ctrlplugin"
+	operatorCephFSDaemonsetName   = "cephfs.csi.ceph.com-nodeplugin"
 )
 
 func deployCephfsPlugin() {
@@ -175,6 +178,11 @@ var _ = Describe(cephfsType, func() {
 			Skip("Skipping CephFS E2E")
 		}
 		c = f.ClientSet
+		if operatorDeployment {
+			cephFSDeploymentName = operatorCephFSDeploymentName
+			cephFSDeamonSetName = operatorCephFSDaemonsetName
+		}
+
 		if deployCephFS {
 			if cephCSINamespace != defaultNs {
 				err := createNamespace(c, cephCSINamespace)

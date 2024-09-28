@@ -108,6 +108,11 @@ var (
 	volSnapNameKey        = "csi.storage.k8s.io/volumesnapshot/name"
 	volSnapNamespaceKey   = "csi.storage.k8s.io/volumesnapshot/namespace"
 	volSnapContentNameKey = "csi.storage.k8s.io/volumesnapshotcontent/name"
+
+	operatorRBDDeploymentName = "rbd.csi.ceph.com-ctrlplugin"
+	operatorRBDDaemonsetName  = "rbd.csi.ceph.com-nodeplugin"
+	rbdPodsLabelSelector      = fmt.Sprintf("app in (ceph-csi-rbd, %s, %s, %s, %s)",
+		rbdDeploymentName, rbdDaemonsetName, operatorCephFSDeploymentName, operatorRBDDaemonsetName)
 )
 
 func deployRBDPlugin() {
@@ -274,7 +279,12 @@ var _ = Describe("RBD", func() {
 			Skip("Skipping RBD E2E")
 		}
 		c = f.ClientSet
-		if deployRBD {
+		if operatorDeployment {
+			rbdDeploymentName = operatorRBDDeploymentName
+			rbdDaemonsetName = operatorRBDDaemonsetName
+		}
+		// always add ? remove from install-helm
+		if deployRBD || operatorDeployment {
 			err := addLabelsToNodes(f, map[string]string{
 				nodeRegionLabel:          regionValue,
 				nodeZoneLabel:            zoneValue,
@@ -284,8 +294,10 @@ var _ = Describe("RBD", func() {
 			if err != nil {
 				framework.Failf("failed to add node labels: %v", err)
 			}
+		}
+		if deployRBD {
 			if cephCSINamespace != defaultNs {
-				err = createNamespace(c, cephCSINamespace)
+				err := createNamespace(c, cephCSINamespace)
 				if err != nil {
 					framework.Failf("failed to create namespace: %v", err)
 				}
@@ -1880,12 +1892,12 @@ var _ = Describe("RBD", func() {
 				validateRBDImageCount(f, 1, defaultRBDPool)
 				validateOmapCount(f, 1, rbdType, defaultRBDPool, volumesType)
 
-				selector, err := getDaemonSetLabelSelector(f, cephCSINamespace, rbdDaemonsetName)
+				daemonsetLabelSelector, err := getDaemonSetLabelSelector(f, cephCSINamespace, rbdDaemonsetName)
 				if err != nil {
-					framework.Failf("failed to get the labels: %v", err)
+					framework.Failf("failed to get daemonset label selector: %v", err)
 				}
 				// delete rbd nodeplugin pods
-				err = deletePodWithLabel(selector, cephCSINamespace, false)
+				err = deletePodWithLabel(daemonsetLabelSelector, cephCSINamespace, false)
 				if err != nil {
 					framework.Failf("fail to delete pod: %v", err)
 				}
@@ -1897,7 +1909,7 @@ var _ = Describe("RBD", func() {
 				}
 
 				opt := metav1.ListOptions{
-					LabelSelector: selector,
+					LabelSelector: daemonsetLabelSelector,
 				}
 				uname, stdErr, err := execCommandInContainer(f, "uname -a", cephCSINamespace, "csi-rbdplugin", &opt)
 				if err != nil || stdErr != "" {
@@ -2815,8 +2827,12 @@ var _ = Describe("RBD", func() {
 				// validate created backend rbd images
 				validateRBDImageCount(f, 1, defaultRBDPool)
 				validateOmapCount(f, 1, rbdType, defaultRBDPool, volumesType)
+				daemonsetLabelSelector, err := getDaemonSetLabelSelector(f, cephCSINamespace, rbdDaemonsetName)
+				if err != nil {
+					framework.Failf("failed to get daemonset label selector: %v", err)
+				}
 				// delete rbd nodeplugin pods
-				err = deletePodWithLabel("app=csi-rbdplugin", cephCSINamespace, false)
+				err = deletePodWithLabel(daemonsetLabelSelector, cephCSINamespace, false)
 				if err != nil {
 					framework.Failf("fail to delete pod: %v", err)
 				}
@@ -3783,8 +3799,7 @@ var _ = Describe("RBD", func() {
 						framework.Failf("failed to create rados namespace: %v", err)
 					}
 					// delete csi pods
-					err = deletePodWithLabel("app in (ceph-csi-rbd, csi-rbdplugin, csi-rbdplugin-provisioner)",
-						cephCSINamespace, false)
+					err = deletePodWithLabel(rbdPodsLabelSelector, cephCSINamespace, false)
 					if err != nil {
 						framework.Failf("failed to delete pods with labels: %v", err)
 					}

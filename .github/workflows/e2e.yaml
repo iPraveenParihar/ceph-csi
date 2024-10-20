@@ -1,0 +1,48 @@
+name: E2E tests
+on:
+    push:
+        branches:
+            - workflow/e2e
+jobs:
+    e2e:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Setup tmate session
+              uses: mxschmitt/action-tmate@v3
+              with:
+                detached: true
+
+            - name: setup golang
+              uses: actions/setup-go@v5
+              with:
+                go-version: "1.22"
+            
+            - name: checkout
+              uses: actions/checkout@v2
+            
+            - name: Load environment variables
+              uses: aarcangeli/load-dotenv@v1
+              with:
+                filenames: 'build.env'
+            
+            - name: Install dependencies
+              run: |
+                sudo apt-get update
+                sudo apt-get install -y socat
+                sudo apt-get install conntrack
+
+            
+            - name: Install minikube
+              run: |
+                k8s_version="v1.31.0"
+                KUBE_VERSION="${k8s_version}" scripts/minikube.sh up
+
+                # copy kubectl from minikube to /usr/bin
+                if [ -x ~/.minikube/cache/linux/"${k8s_version}"/kubectl ]
+                then
+                    cp ~/.minikube/cache/linux/"${k8s_version}"/kubectl /usr/bin/
+                else
+                    # minikube 1.25.2 adds the GOARCH to the path ("amd64" in our CI)
+                    cp ~/.minikube/cache/linux/amd64/"${k8s_version}"/kubectl /usr/bin/
+                fi
+                

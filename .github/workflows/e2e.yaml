@@ -1,0 +1,88 @@
+name: test
+on:
+  push:
+    branches:
+      - workflow/e2e
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
+        with:
+          detached: true
+      
+      - name: Setup golang
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Install minikube
+        uses: medyagh/setup-minikube@latest
+        with:
+          minikube-version: 1.34.0
+          kubernetes-version: v1.31.0
+          cpus: 4
+          memory: 4000m
+          cni: bridge
+      
+      - name: Install kubelet
+        run: |
+            curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+            curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl.sha256"
+            echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check
+            sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+            kubectl version --client --output=yaml
+      
+      - name: Deploy SnapshotCRDS & SnapshotController
+        run: |
+          SNAPSHOT_VERSION=${SNAPSHOT_VERSION:-"v8.1.0"}
+          SNAPSHOTTER_URL="https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/${SNAPSHOT_VERSION}"
+
+          # controller
+          SNAPSHOT_RBAC="${SNAPSHOTTER_URL}/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml"
+          SNAPSHOT_CONTROLLER="${SNAPSHOTTER_URL}/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml"
+
+          # snapshot CRD
+          SNAPSHOTCLASS="${SNAPSHOTTER_URL}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml"
+          VOLUME_SNAPSHOT_CONTENT="${SNAPSHOTTER_URL}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml"
+          VOLUME_SNAPSHOT="${SNAPSHOTTER_URL}/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml"
+
+          # volumegroupsnapshot CRD
+          VOLUME_GROUP_SNAPSHOTCLASS="${SNAPSHOTTER_URL}/client/config/crd/groupsnapshot.storage.k8s.io_volumegroupsnapshotclasses.yaml"
+          VOLUME_GROUP_SNAPSHOT_CONTENT="${SNAPSHOTTER_URL}/client/config/crd/groupsnapshot.storage.k8s.io_volumegroupsnapshotcontents.yaml"
+          VOLUME_GROUP_SNAPSHOT="${SNAPSHOTTER_URL}/client/config/crd/groupsnapshot.storage.k8s.io_volumegroupsnapshots.yaml"
+        
+          kubectl apply -f ${SNAPSHOT_RBAC}
+          kubectl apply -f ${SNAPSHOT_CONTROLLER}
+          kubectl apply -f ${SNAPSHOTCLASS}
+          kubectl apply -f ${VOLUME_SNAPSHOT_CONTENT}
+          kubectl apply -f ${VOLUME_SNAPSHOT}
+          kubectl apply -f ${VOLUME_GROUP_SNAPSHOTCLASS}
+          kubectl apply -f ${VOLUME_GROUP_SNAPSHOT_CONTENT}
+          kubectl apply -f ${VOLUME_GROUP_SNAPSHOT}
+
+      - name: Deploy csi-driver-host-path
+        run: |
+          cd ~
+          git clone https://github.com/kubernetes-csi/csi-driver-host-path.git
+          csi-driver-host-path/deploy/kubernetes-1.27/deploy.sh
+
+          # Wait for the csi-driver-host-path to be ready
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=csi-hostpathplugin --timeout=300s
+      
+      - name: Create a PVC & Mount it to a Pod
+        run: |
+          cd ~
+          kubectl create -f csi-driver-host-path/examples/csi-storageclass.yaml
+          kubectl create -f csi-driver-host-path/examples/csi-pvc.yaml
+
+          kubectl create -f csi-driver-host-path/examples/csi-app.yaml
+          # Wait for the Pod to be running
+          kubectl wait --for=condition=ready pod/my-csi-app --timeout=300s
+
+      - name: Create a Snapshot
+        run: |
+          kubectl create -f csi-driver-host-path/examples/csi-volumesnapshotclass.yaml 
+          kubectl create -f csi-driver-host-path/examples/csi-snapshot-v1.yaml 

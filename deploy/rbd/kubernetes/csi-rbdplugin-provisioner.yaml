@@ -15,6 +15,10 @@ spec:
       port: 8080
       protocol: TCP
       targetPort: 8680
+    - name: snapshot-metadata-endpoint
+      port: 6443
+      protocol: TCP
+      targetPort: 50051
 
 ---
 kind: Deployment
@@ -206,6 +210,54 @@ spec:
               name: http-endpoint
               protocol: TCP
           volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+        - name: csi-snapshot-metadata
+          image: ghcr.io/rakshith-r/csi-snapshot-metadata:latest
+          imagePullPolicy: "IfNotPresent"
+          args:
+            - "-v=1"
+            - "-port=50051"
+            - "-csi-address=$(ADDRESS)"
+            - "-tls-cert=/etc/tls-certs/tls.crt"
+            - "-tls-key=/etc/tls-certs/tls.key"
+          livenessProbe:
+            exec:
+              command:
+                - /bin/grpc_health_probe
+                - -addr=:50051
+                - -tls
+                - -tls-no-verify
+            failureThreshold: 3
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          readinessProbe:
+            exec:
+              command:
+                - /bin/grpc_health_probe
+                - -addr=:50051
+                - -tls
+                - -tls-no-verify
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          env:
+            - name: ADDRESS
+              value: unix:///csi/csi-provisioner.sock
+          ports:
+            - containerPort: 50051
+              name: snapshot-metadata-endpoint
+              protocol: TCP
+          volumeMounts:
+            - name: snapshot-metadata-server-certs
+              mountPath: /etc/tls-certs
+              readOnly: true
             - name: socket-dir
               mountPath: /csi
         - name: csi-rbdplugin-controller

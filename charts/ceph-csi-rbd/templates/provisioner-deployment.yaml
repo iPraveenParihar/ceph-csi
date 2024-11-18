@@ -288,6 +288,30 @@ spec:
           resources:
 {{ toYaml .Values.provisioner.attacher.resources | indent 12 }}
 {{- end }}
+{{- if .Values.provisioner.snapshot-metadata.enabled }}
+        - name: csi-snapshot-metadata
+          image: "{{ .Values.provisioner.snapshot-metadata.image.repository }}:{{ .Values.provisioner.resizer.image.tag }}"
+          imagePullPolicy: {{ .Values.provisioner.snapshot-metadata.image.pullPolicy }}
+          args:
+            - "-v={{ .Values.sidecarLogLevel }}"
+            - "-port={{ .Values.provisioner.snapshot-metadata.args.port }}"
+            - "-csi-address=$(ADDRESS)"
+            - "-tls-cert=/etc/tls-certs/tls.crt"
+            - "-tls-key=/etc/tls-certs/tls.key"
+          env:
+            - name: ADDRESS
+              value: "unix:///csi/{{ .Values.provisionerSocketFile }}"
+          ports:
+            - containerPort: {{ .Values.provisioner.snapshot-metadata.args.port }}
+              name: snapshot-metadata-endpoint
+              protocol: TCP
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+            - name: snapshot-metadata-server-certs
+              mountPath: /etc/tls-certs
+              readOnly: true
+{{- end }}
 {{- if .Values.provisioner.deployController }}
         - name: csi-rbdplugin-controller
           image: "{{ .Values.nodeplugin.plugin.image.repository }}:{{ .Values.nodeplugin.plugin.image.tag }}"

@@ -1190,9 +1190,9 @@ func (cs *ControllerServer) CreateSnapshot(
 		return cloneFromSnapshot(ctx, rbdVol, rbdSnap, cr, req.GetParameters())
 	}
 
-	err = flattenTemporaryClonedImages(ctx, rbdVol, cr)
+	err = rbdVol.PrepareVolumeForSnapshot(ctx, cr)
 	if err != nil {
-		return nil, err
+		return nil, status.Error(codes.Internal, err.Error())
 	}
 
 	err = reserveSnap(ctx, rbdSnap, rbdVol, cr)

@@ -2273,3 +2273,29 @@ func (ri *rbdImage) GetClusterID(ctx context.Context) (string, error) {
 
 	return ri.ClusterID, nil
 }
+
+func (rbdVol *rbdVolume) PrepareVolumeForSnapshot(ctx context.Context, creds *util.Credentials) error {
+	err := flattenTemporaryClonedImages(ctx, rbdVol, creds)
+	if err != nil {
+		return err
+	}
+
+	hardLimit := rbdHardMaxCloneDepth
+	softLimit := rbdSoftMaxCloneDepth
+
+	// choosing 2, since snapshots adds one depth and we'll be flattening the parent.
+	const depthToAvoidFlatten = 2
+	if rbdHardMaxCloneDepth > depthToAvoidFlatten {
+		hardLimit = rbdHardMaxCloneDepth - depthToAvoidFlatten
+	}
+	if rbdSoftMaxCloneDepth > depthToAvoidFlatten {
+		softLimit = rbdSoftMaxCloneDepth - depthToAvoidFlatten
+	}
+
+	err = rbdVol.flattenParent(ctx, hardLimit, softLimit)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}

@@ -29,6 +29,10 @@ VOLUME_GROUP_SNAPSHOTCLASS="${SNAPSHOTTER_URL}/client/config/crd/groupsnapshot.s
 VOLUME_GROUP_SNAPSHOT_CONTENT="${SNAPSHOTTER_URL}/client/config/crd/groupsnapshot.storage.k8s.io_volumegroupsnapshotcontents.yaml"
 VOLUME_GROUP_SNAPSHOT="${SNAPSHOTTER_URL}/client/config/crd/groupsnapshot.storage.k8s.io_volumegroupsnapshots.yaml"
 
+# snapshot metadata
+SNAPSHOT_METADATA_URL="https://raw.githubusercontent.com/kubernetes-csi/external-snapshot-metadata/refs/heads/main"
+SNAPSHOT_METADATA_SERVICE="${SNAPSHOT_METADATA_URL}/client/config/crd/cbt.storage.k8s.io_snapshotmetadataservices.yaml"
+
 function install_snapshot_controller() {
     local namespace=$1
     if [ -z "${namespace}" ]; then
@@ -101,12 +105,87 @@ function create_or_delete_resource() {
     kubectl_retry "${operation}" -f "${VOLUME_SNAPSHOT}"
 }
 
+function install_snapshot_metadata() {
+    local namespace=$1
+    local driverName="csi-rbdplugin"
+    # install snapshot metadata service crd
+    # install openssl
+    # provision TLS certs
+    # create TLS secret
+    # create snapshotMetadataService resource
+
+    provision_tls_certs "${namespace}" "${driverName}"
+    create_or_delete_tls_certs "create" "${namespace}" "${driverName}"
+    create_or_delete_snapshot_metadata_service "create" "${namespace}" "${driverName}"
+}
+
+function cleanup_snapshot_metadata() {
+    local namespace=$1
+    local driverName="csi-rbdplugin"
+    create_or_delete_tls_certs "delete" "${namespace}" "${driverName}"
+    create_or_delete_snapshot_metadata_service "delete" "${namespace}" "${driverName}"
+    rm -rf "${TEMP_DIR}"
+}
+
+function provision_tls_certs() {
+    local namespace=$1
+    local driverName=$2
+    # TODO: install openssl if not present
+    
+    # 1. Create extension file
+    echo "subjectAltName=DNS:.default,DNS:${driverName}.default,IP:0.0.0.0" > ${TEMP_DIR}/server-ext.cnf
+
+    # 2. Generate CA's private key and self-signed certificate
+    openssl req -x509 -newkey rsa:4096 -keyout ${TEMP_DIR}/ca-key.pem -out ${TEMP_DIR}/ca-cert.pem -days 365 -nodes -subj "/CN=${driverName}.${namespace}"
+    openssl x509 -in ca-cert.pem -noout -text
+
+    # 3. Generate web server's private key and certificate signing request (CSR)
+    openssl req -newkey rsa:4096 -nodes -keyout ${TEMP_DIR}/server-key.pem -out ${TEMP_DIR}/server-req.pem -subj "/CN=${driverName}.${namespace}"
+
+    # 4. Use CA's private key to sign web server's CSR and get back the signed certificate
+    openssl x509 -req -in ${TEMP_DIR}/server-req.pem -days 60 -CA ${TEMP_DIR}/ca-cert.pem -CAkey ${TEMP_DIR}/ca-key.pem -CAcreateserial -out ${TEMP_DIR}/server-cert.pem -extfile ${TEMP_DIR}/server-ext.cnf
+    openssl x509 -in ${TEMP_DIR}/server-cert.pem -noout -text
+}
+
+function create_or_delete_tls_certs() {
+    local operation=$1
+    local namespace=$2
+    local driverName=$3
+    local server_cert="${TEMP_DIR}/server-cert.pem"
+    local server_key="${TEMP_DIR}/server-key.pem"
+    kubectl_retry "${operation}" "secret tls ${driverName}-certs --namespace=${namespace} --cert=${server_cert} --key=${server-key}"
+}
+
+function create_or_delete_snapshot_metadata_service() {
+    local operation=$1
+    local namespace=$2
+    local driverName=$3
+    local generated_ca_cert
+    if [ -Z "${TEMP_DIR}/ca-cert.pem" ]; then
+        generated_ca_cert=$(base64 -i -w 0 ${TEMP_DIR}/ca-cert.pem)
+    fi
+
+    temp_file=$(mktemp "${TEMP_DIR}/snapshot-metadata-service.XXXXXX.yaml")
+    cat <<EOF > "${temp_file}"
+apiVersion: cbt.storage.k8s.io/v1alpha1
+kind: SnapshotMetadataService
+metadata:
+  name: ${driverName}-snapshot-metadata-service
+spec:
+    address: ${driverName}.default:6443
+    caCert: ${generated_ca_cert}
+EOF
+    kubectl_retry "${operation}" -f "${temp_file}"
+}
+    
 case "${1:-}" in
 install)
     install_snapshot_controller "$2"
+    install_snapshot_metadata "$2"
     ;;
 cleanup)
     cleanup_snapshot_controller "$2"
+    cleanup_snapshot_metadata "$2"
     ;;
 *)
     echo "usage:" >&2

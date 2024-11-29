@@ -1,0 +1,31 @@
+name: Build and Push Image
+
+on: [push]
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+    # Checkout repository code
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    # Log in to GitHub Container Registry
+    - name: Log in to GitHub Container Registry
+      env:
+        GHCR: ${{ secrets.GHCR }}
+      run: echo "${GHCR}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+
+    # Build the image and push
+    - name: Build Image and Push
+      run: |
+        # Extract branch name and replace '/' with '-'
+        IMAGE_TAG=$(echo "${{ github.ref_name }}" | sed 's|/|-|g')
+        IMAGE_NAME=$(echo "ghcr.io/${{ github.repository_owner }}/cephcsi" | tr '[:upper:]' '[:lower:]')
+
+        echo "Building image: ${IMAGE_NAME}:${IMAGE_TAG}"
+        make -j4 image-cephcsi CSI_IMAGE_NAME=${IMAGE_NAME} CSI_IMAGE_VERSION=${IMAGE_TAG}
+
+        echo "Pushing image: ${IMAGE_NAME}:${IMAGE_TAG}"
+        podman push ${IMAGE_NAME}:${IMAGE_TAG}

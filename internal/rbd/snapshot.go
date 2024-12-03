@@ -162,6 +162,30 @@ func (rbdSnap *rbdSnapshot) ToCSI(ctx context.Context) (*csi.Snapshot, error) {
 	}, nil
 }
 
+// Delete removes the snapshot from the RBD image and then
+// the RBD image itself.
+func (rbdSnap *rbdSnapshot) Delete(ctx context.Context) error {
+	rbdVol := rbdSnap.toVolume()
+
+	err := rbdVol.Connect(rbdSnap.conn.Creds)
+	if err != nil {
+		return err
+	}
+	defer rbdVol.Destroy(ctx)
+
+	rbdVol.ImageID = rbdSnap.ImageID
+	// update parent name to delete the snapshot
+	rbdSnap.RbdImageName = rbdVol.RbdImageName
+	err = cleanUpSnapshot(ctx, rbdVol, rbdSnap, rbdVol)
+	if err != nil {
+		log.ErrorLog(ctx, "failed to delete image: %v", err)
+
+		return err
+	}
+
+	return nil
+}
+
 func undoSnapshotCloning(
 	ctx context.Context,
 	parentVol *rbdVolume,

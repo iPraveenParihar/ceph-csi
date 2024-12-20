@@ -1650,7 +1650,7 @@ var _ = Describe("RBD", func() {
 					}
 					readOnlyErr := fmt.Sprintf("cannot create %s: Read-only file system", filePath)
 					if !strings.Contains(stdErr, readOnlyErr) {
-						framework.Failf(stdErr)
+						framework.Failf("failed to execute command %s: %v", cmd, stdErr)
 					}
 				}
 
@@ -1783,7 +1783,7 @@ var _ = Describe("RBD", func() {
 					}
 					readOnlyErr := fmt.Sprintf("'%s': Operation not permitted", devPath)
 					if !strings.Contains(stdErr, readOnlyErr) {
-						framework.Failf(stdErr)
+						framework.Failf("failed to execute command %s: %v", cmd, stdErr)
 					}
 				}
 				err = deletePVCAndDeploymentApp(f, pvcClone, appClone)
@@ -3335,14 +3335,15 @@ var _ = Describe("RBD", func() {
 					}
 
 					filePath := appClone.Spec.Containers[0].VolumeMounts[0].MountPath + "/test"
+					cmd := "echo 'Hello World' > " + filePath
 					_, stdErr := execCommandInPodAndAllowFail(
 						f,
-						"echo 'Hello World' > "+filePath,
+						cmd,
 						appClone.Namespace,
 						&opt)
 					readOnlyErr := fmt.Sprintf("cannot create %s: Read-only file system", filePath)
 					if !strings.Contains(stdErr, readOnlyErr) {
-						framework.Failf(stdErr)
+						framework.Failf("failed to execute command %s: %v", cmd, stdErr)
 					}
 				}
 
@@ -3449,14 +3450,15 @@ var _ = Describe("RBD", func() {
 					}
 
 					filePath := appClone.Spec.Containers[0].VolumeMounts[0].MountPath + "/test"
+					cmd := "echo 'Hello World' > " + filePath
 					_, stdErr := execCommandInPodAndAllowFail(
 						f,
-						"echo 'Hello World' > "+filePath,
+						cmd,
 						appClone.Namespace,
 						&opt)
 					readOnlyErr := fmt.Sprintf("cannot create %s: Read-only file system", filePath)
 					if !strings.Contains(stdErr, readOnlyErr) {
-						framework.Failf(stdErr)
+						framework.Failf("failed to execute command %s: %v", cmd, stdErr)
 					}
 				}
 
@@ -4111,14 +4113,15 @@ var _ = Describe("RBD", func() {
 				}
 
 				filePath := app.Spec.Containers[0].VolumeMounts[0].MountPath + "/test"
+				cmd := "echo 'Hello World' > " + filePath
 				_, stdErr := execCommandInPodAndAllowFail(
 					f,
-					"echo 'Hello World' > "+filePath,
+					cmd,
 					app.Namespace,
 					&opt)
 				readOnlyErr := fmt.Sprintf("cannot create %s: Read-only file system", filePath)
 				if !strings.Contains(stdErr, readOnlyErr) {
-					framework.Failf(stdErr)
+					framework.Failf("failed to execute command %s: %v", cmd, stdErr)
 				}
 
 				// delete PVC and app

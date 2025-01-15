@@ -1332,8 +1332,7 @@ func (cs *ControllerServer) doSnapshotClone(
 	cloneRbd := rbdSnap.toVolume()
 	defer cloneRbd.Destroy(ctx)
 	// add image feature for cloneRbd
-	f := []string{librbd.FeatureNameLayering, librbd.FeatureNameDeepFlatten}
-	cloneRbd.ImageFeatureSet = librbd.FeatureSetFromNames(f)
+	cloneRbd.ImageFeatureSet = librbd.FeatureSetFromNames(parentVol.ImageFeatureSet.Names())
 
 	err := cloneRbd.Connect(cr)
 	if err != nil {

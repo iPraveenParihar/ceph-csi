@@ -1418,6 +1418,9 @@ func (rv *rbdVolume) validateImageFeatures(imageFeatures string) error {
 		return nil
 	}
 	arr := strings.Split(imageFeatures, ",")
+
+	// Enable deep flatten by default.
+	arr = append(arr, librbd.FeatureNameDeepFlatten, librbd.FeatureNameLayering)
 	featureSet := sets.NewString(arr...)
 	for _, f := range arr {
 		sf, found := supportedFeatures[f]

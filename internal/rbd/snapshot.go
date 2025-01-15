@@ -277,8 +277,7 @@ func (rv *rbdVolume) NewSnapshotByID(
 	}
 
 	// set the features for the clone image.
-	f := []string{librbd.FeatureNameLayering, librbd.FeatureNameDeepFlatten}
-	rv.ImageFeatureSet = librbd.FeatureSetFromNames(f)
+	rv.ImageFeatureSet = librbd.FeatureSetFromNames(rv.ImageFeatureSet.Names())
 
 	options, err := rv.constructImageOptions(ctx)
 	if err != nil {

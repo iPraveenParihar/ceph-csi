@@ -7,8 +7,7 @@
 # Operating System, so generated binaries and versions of dependencies may be a
 # little different.
 #
-
-FROM quay.io/fedora/fedora:latest
+FROM quay.ceph.io/ceph-ci/ceph:wip-pkalever-rbd-group-snap-mirror
 
 ARG GOPATH=/go
 ARG GOROOT=/usr/local/go
@@ -24,6 +23,13 @@ ENV \
 COPY build.env /
 
 RUN mkdir -p /etc/selinux && touch /etc/selinux/config
+
+RUN true \
+    && (. /etc/os-release ; if [ "$ID" = centos -a "$VERSION" = 8 ]; then find /etc/yum.repos.d/ -name '*.repo' -exec sed -i -e 's|^mirrorlist=|#mirrorlist=|g' -e 's|^#baseurl=http://mirror.centos.org|baseurl=https://vault.centos.org|g'  {} \; ; fi ) \
+    && if [ ! -f /etc/yum.repos.d/ceph.repo -a "$CEPH_IS_DEVEL" = true ]; then yum reinstall -y "$(curl -fs "https://shaman.ceph.com/api/search/?project=ceph&distros=centos/9/x86_64&flavor=default&ref=wip-pkalever-rbd-group-snap-mirror&sha1=4fea9830b879b460834a720470e91d519576bb28" | jq -r .[0].url)/noarch/ceph-release-1-0.el9.noarch.rpm"; fi \
+    && if [ ! -f /etc/yum.repos.d/ceph.repo -a "$CEPH_IS_DEVEL" != true ]; then yum reinstall -y "https://download.ceph.com/rpm-wip-pkalever-rbd-group-snap-mirror/el9/noarch/ceph-release-1-1.el9.noarch.rpm"; fi \
+     && ( dnf config-manager --disable tcmu-runner,tcmu-runner-source,tcmu-runner-noarch,ceph-iscsi,ganesha || true ) \
+     && true
 
 RUN source /build.env \
     && \

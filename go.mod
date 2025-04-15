@@ -24,7 +24,7 @@ require (
 	github.com/onsi/gomega v1.35.1
 	github.com/pkg/xattr v0.4.10
 	github.com/prometheus/client_golang v1.20.5
-	github.com/stretchr/testify v1.9.0
+	github.com/stretchr/testify v1.10.0
 	golang.org/x/crypto v0.32.0
 	golang.org/x/net v0.34.0
 	golang.org/x/sys v0.30.0
@@ -52,6 +52,9 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.8.0
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets v1.3.0
 )
+
+// Address CVE-2025-27144
+replace github.com/go-jose/go-jose/v4 => github.com/go-jose/go-jose/v4 v4.0.5
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.16.0 // indirect

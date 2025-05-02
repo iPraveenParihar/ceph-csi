@@ -357,6 +357,44 @@ func checkValidCreateVolumeRequest(rbdVol, parentVol *rbdVolume, rbdSnap *rbdSna
 	return nil
 }
 
+func (cs *ControllerServer) ListSnapshots(
+	ctx context.Context,
+	req *csi.ListSnapshotsRequest,
+) (*csi.ListSnapshotsResponse, error) {
+	if err := cs.Driver.ValidateControllerServiceRequest(
+		csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS); err != nil {
+		log.ErrorLog(ctx, "invalid list snapshot req: %v", protosanitizer.StripSecrets(req))
+
+		return nil, err
+	}
+
+	mgr := NewManager(cs.Driver.GetInstanceID(), nil, req.GetSecrets())
+	defer mgr.Destroy(ctx)
+
+	snap, err := mgr.GetSnapshotByID(ctx, req.GetSnapshotId())
+	if err != nil {
+		if errors.Is(err, rbderrors.ErrImageNotFound) || errors.Is(err, util.ErrPoolNotFound) {
+			return nil, status.Errorf(codes.NotFound, "failed to find snapshot with ID %q: %s", req.GetSnapshotId(), err.Error())
+		}
+
+		return nil, status.Errorf(codes.Internal, "failed to find snapshot with ID %q: %s", req.GetSnapshotId(), err.Error())
+	}
+	defer snap.Destroy(ctx)
+
+	csiSnap, err := snap.ToCSI(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	return &csi.ListSnapshotsResponse{
+		Entries: []*csi.ListSnapshotsResponse_Entry{
+			{
+				Snapshot: csiSnap,
+			},
+		},
+	}, nil
+}
+
 // CreateVolume creates the volume in backend.
 func (cs *ControllerServer) CreateVolume(
 	ctx context.Context,

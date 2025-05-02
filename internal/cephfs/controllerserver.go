@@ -1020,11 +1020,10 @@ func (cs *ControllerServer) ListSnapshots(
 		Entries: []*csi.ListSnapshotsResponse_Entry{
 			{
 				Snapshot: &csi.Snapshot{
-					SizeBytes:      info.BytesQuota,
-					SnapshotId:     sid.SnapshotID,
-					SourceVolumeId: req.GetSourceVolumeId(),
-					CreationTime:   sid.CreationTime,
-					ReadyToUse:     true,
+					SizeBytes:    info.BytesQuota,
+					SnapshotId:   sid.SnapshotID,
+					CreationTime: sid.CreationTime,
+					ReadyToUse:   true,
 				},
 			},
 		},

@@ -306,6 +306,7 @@ func (rs *ReplicationServer) EnableVolumeReplication(ctx context.Context,
 
 		return nil, status.Error(codes.Internal, err.Error())
 	}
+	log.UsefulLog(ctx, "mirror state is %s", info.GetState())
 	if info.GetState() != librbd.MirrorImageEnabled.String() {
 		if len(volumes) > 0 {
 			for _, rbdVol := range volumes {
@@ -374,6 +375,7 @@ func (rs *ReplicationServer) DisableVolumeReplication(ctx context.Context,
 
 		return nil, status.Error(codes.Internal, err.Error())
 	}
+	log.UsefulLog(ctx, "mirror state is %s", info.GetState())
 	switch info.GetState() {
 	// image is already in disabled state
 	case librbd.MirrorImageDisabled.String():
@@ -435,6 +437,7 @@ func (rs *ReplicationServer) PromoteVolume(ctx context.Context,
 
 		return nil, status.Error(codes.Internal, err.Error())
 	}
+	log.UsefulLog(ctx, "mirror state is %s, primary: %s", info.GetState(), info.IsPrimary())
 
 	if info.GetState() != librbd.MirrorImageEnabled.String() {
 		return nil, status.Errorf(
@@ -543,6 +546,7 @@ func (rs *ReplicationServer) DemoteVolume(ctx context.Context,
 
 		return nil, status.Error(codes.Internal, err.Error())
 	}
+	log.UsefulLog(ctx, "mirror state is %s, primary: %s", info.GetState(), info.IsPrimary())
 
 	if info.GetState() != librbd.MirrorImageEnabled.String() {
 		return nil, status.Errorf(

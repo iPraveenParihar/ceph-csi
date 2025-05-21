@@ -83,7 +83,7 @@ func (rv *rbdVolume) HandleParentImageExistence(
 var _ types.Mirror = &rbdVolume{}
 
 // EnableMirroring enables mirroring on an image.
-func (ri *rbdImage) EnableMirroring(_ context.Context, mode librbd.ImageMirrorMode) error {
+func (ri *rbdImage) EnableMirroring(ctx context.Context, mode librbd.ImageMirrorMode) error {
 	image, err := ri.open()
 	if err != nil {
 		return fmt.Errorf("failed to open image %q with error: %w", ri, err)
@@ -95,11 +95,13 @@ func (ri *rbdImage) EnableMirroring(_ context.Context, mode librbd.ImageMirrorMo
 		return fmt.Errorf("failed to enable mirroring on %q with error: %w", ri, err)
 	}
 
+	log.DebugLog(ctx, "mirroring is enabled on the image %q", ri)
+
 	return nil
 }
 
 // DisableMirroring disables mirroring on an image.
-func (ri *rbdImage) DisableMirroring(_ context.Context, force bool) error {
+func (ri *rbdImage) DisableMirroring(ctx context.Context, force bool) error {
 	image, err := ri.open()
 	if err != nil {
 		return fmt.Errorf("failed to open image %q with error: %w", ri, err)
@@ -110,6 +112,8 @@ func (ri *rbdImage) DisableMirroring(_ context.Context, force bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to disable mirroring on %q with error: %w", ri, err)
 	}
+
+	log.DebugLog(ctx, "mirroring is disabled on the image %q", ri)
 
 	return nil
 }
@@ -131,7 +135,7 @@ func (ri *rbdImage) GetMirroringInfo(_ context.Context) (types.MirrorInfo, error
 }
 
 // Promote promotes image to primary.
-func (ri *rbdImage) Promote(_ context.Context, force bool) error {
+func (ri *rbdImage) Promote(ctx context.Context, force bool) error {
 	image, err := ri.open()
 	if err != nil {
 		return fmt.Errorf("failed to open image %q with error: %w", ri, err)
@@ -141,6 +145,8 @@ func (ri *rbdImage) Promote(_ context.Context, force bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to promote image %q with error: %w", ri, err)
 	}
+
+	log.DebugLog(ctx, "image %q has been promoted", ri)
 
 	return nil
 }
@@ -172,11 +178,13 @@ func (rv *rbdVolume) ForcePromote(ctx context.Context, cr *util.Credentials) err
 		return fmt.Errorf("failed to promote image %q with stderror: %s", rv, stderr)
 	}
 
+	log.DebugLog(ctx, "image %q has been force promoted", rv)
+
 	return nil
 }
 
 // Demote demotes image to secondary.
-func (ri *rbdImage) Demote(_ context.Context) error {
+func (ri *rbdImage) Demote(ctx context.Context) error {
 	image, err := ri.open()
 	if err != nil {
 		return fmt.Errorf("failed to open image %q with error: %w", ri, err)
@@ -187,11 +195,13 @@ func (ri *rbdImage) Demote(_ context.Context) error {
 		return fmt.Errorf("failed to demote image %q with error: %w", ri, err)
 	}
 
+	log.DebugLog(ctx, "image %q has been demoted", ri)
+
 	return nil
 }
 
 // Resync resync image to correct the split-brain.
-func (ri *rbdImage) Resync(_ context.Context) error {
+func (ri *rbdImage) Resync(ctx context.Context) error {
 	image, err := ri.open()
 	if err != nil {
 		return fmt.Errorf("failed to open image %q with error: %w", ri, err)
@@ -201,6 +211,8 @@ func (ri *rbdImage) Resync(_ context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to resync image %q with error: %w", ri, err)
 	}
+
+	log.DebugLog(ctx, "issued resync on image %q", ri)
 
 	// If we issued a resync, return a non-final error as image needs to be recreated
 	// locally. Caller retries till RBD syncs an initial version of the image to

@@ -247,6 +247,14 @@ func (vs *VolumeGroupServer) CreateVolumeGroup(
 			err.Error())
 	}
 
+	for key, value := range req.GetParameters() {
+		if value == "" {
+			log.DebugLog(ctx, "skipping empty parameter %q for volume group %q", key, groupName)
+			continue
+		}
+		csiVG.VolumeGroupContext[key] = value
+	}
+
 	return &volumegroup.CreateVolumeGroupResponse{
 		VolumeGroup: csiVG,
 	}, nil

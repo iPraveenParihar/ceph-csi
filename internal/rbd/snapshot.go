@@ -160,7 +160,11 @@ func (rbdSnap *rbdSnapshot) ToCSI(ctx context.Context) (*csi.Snapshot, error) {
 	case rbdSnap.VolID == "":
 		return nil, fmt.Errorf("%q does not have a volume-id set", rbdSnap)
 	case rbdSnap.SourceVolumeID == "":
-		return nil, fmt.Errorf("%q does not have a source-volume-id set", rbdSnap)
+		// FIXME: Remove this log statement and return an error once we
+		// store source volume ID in the snapshot journal.
+		log.ErrorLog(ctx, "%q does not have a source-volume-id set", rbdSnap)
+		//nolint:gocritic // remove this once we store source volume ID in the journal
+		// return nil, fmt.Errorf("%q does not have a source-volume-id set", rbdSnap)
 	}
 
 	created, err := rbdSnap.GetCreationTime(ctx)

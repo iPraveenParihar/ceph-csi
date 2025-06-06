@@ -67,4 +67,11 @@ var (
 	ErrGroupNotConnected = fmt.Errorf("%w: RBD group is not connected", librados.ErrNotConnected)
 	// ErrGroupNotFound is returned when group is not found in the cluster on the given pool and/or namespace.
 	ErrGroupNotFound = fmt.Errorf("%w: RBD group not found", librbd.ErrNotFound)
+	// ErrGroupUnavailable is returned when the group needs to be recreated
+	// locally and may be corrected by retrying with a backoff.
+	ErrGroupUnavailable = errors.New("group needs to be recreated")
+	// ErrStatusNotFound is returned when the image/group mirror status is not found.
+	ErrStatusNotFound = errors.New("rbd image/group status not found")
+	// ErrGroupInvalidArgument is returned when an invalid operation is attempted on the group.
+	ErrGroupInvalidArgument = errors.New("rbd group invalid arguments provided")
 )

@@ -954,6 +954,16 @@ func (rs *ReplicationServer) GetVolumeReplicationInfo(ctx context.Context,
 		resp.LastSyncDuration = durationpb.New(*lastDuration)
 	}
 
+	replicationStatus, statusMessage, err := getCurrentReplicationStatus(ctx, mirrorStatus)
+	if err != nil {
+		log.ErrorLog(ctx, err.Error())
+
+		return nil, status.Errorf(codes.Internal, "failed to get local status: %v", err)
+	}
+
+	resp.Status = replicationStatus
+	resp.StatusMessage = statusMessage
+
 	return &resp, nil
 }
 
@@ -977,4 +987,40 @@ func destoryVolumes(ctx context.Context, volumes []types.Volume) {
 	for _, vol := range volumes {
 		vol.Destroy(ctx)
 	}
+}
+
+func getCurrentReplicationStatus(ctx context.Context, mirrorGlobalStatus types.GlobalStatus,
+) (replication.GetVolumeReplicationInfoResponse_Status, string, error) {
+	// get image local status
+	localStatus, err := mirrorGlobalStatus.GetLocalSiteStatus()
+	if err != nil {
+		return replication.GetVolumeReplicationInfoResponse_UNKNOWN, "", err
+	}
+
+	// parse only the message from the description of the image/group status
+	statusDesc := localStatus.GetDescription()
+	desc := strings.SplitN(statusDesc, ",", 2)[0]
+
+	// check if mirroring state is up/down
+	isUp := localStatus.IsUP()
+
+	if !isUp {
+		return replication.GetVolumeReplicationInfoResponse_DEGRADED, desc, nil
+	}
+
+	resp := replication.GetVolumeReplicationInfoResponse_UNKNOWN
+	switch localStatus.GetState() {
+	case librbd.MirrorImageStatusStateError.String():
+		resp = replication.GetVolumeReplicationInfoResponse_ERROR
+	// return HEALTHY only for primary and secondary state, i.e, stopped and replaying respectively
+	case librbd.MirrorImageStatusStateReplaying.String(), librbd.MirrorImageStatusStateStopped.String():
+		resp = replication.GetVolumeReplicationInfoResponse_HEALTHY
+	default:
+		log.DebugLog(
+			ctx,
+			"mirroring is in intermediary state, state=%v, description=%v",
+			localStatus.GetState(), desc)
+	}
+
+	return resp, desc, nil
 }

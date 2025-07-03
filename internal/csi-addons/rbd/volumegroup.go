@@ -245,6 +245,10 @@ func (vs *VolumeGroupServer) CreateVolumeGroup(
 			err.Error())
 	}
 
+	for key, value := range req.GetParameters() {
+		csiVG.VolumeGroupContext[key] = value
+	}
+
 	return &volumegroup.CreateVolumeGroupResponse{
 		VolumeGroup: csiVG,
 	}, nil

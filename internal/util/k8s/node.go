@@ -20,7 +20,12 @@ import (
 	"context"
 	"fmt"
 
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+const (
+	TaintOutOfServiceKey string = "node.kubernetes.io/out-of-service"
 )
 
 func GetNodeLabels(nodeName string) (map[string]string, error) {
@@ -36,4 +41,27 @@ func GetNodeLabels(nodeName string) (map[string]string, error) {
 	}
 
 	return node.GetLabels(), nil
+}
+
+func IsNodeOutOfService(nodeName string) (bool, error) {
+	client, err := NewK8sClient()
+	if err != nil {
+		return false, fmt.Errorf("can not get node %q information, failed "+
+			"to connect to Kubernetes: %w", nodeName, err)
+	}
+
+	node, err := client.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
+	if err != nil {
+		return false, fmt.Errorf("failed to get node %q information: %w", nodeName, err)
+	}
+
+	for _, t := range node.Spec.Taints {
+		if t.Key == TaintOutOfServiceKey {
+			if t.Effect == v1.TaintEffectNoExecute || t.Effect == v1.TaintEffectNoSchedule {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
 }

@@ -75,3 +75,11 @@ var (
 	// ErrGroupInvalidArgument is returned when an invalid operation is attempted on the group.
 	ErrGroupInvalidArgument = errors.New("rbd group invalid arguments provided")
 )
+
+// ErrorCode is an interface that defines a method to return an error code.
+// This interface is used to provide a consistent way to retrieve error codes
+// from functions that is expected to return an error with specific codes.
+type ErrorCode interface {
+	// ErrorCode returns the error code.
+	ErrorCode() int
+}

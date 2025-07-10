@@ -42,10 +42,11 @@ type NonBlockingGRPCServer interface {
 
 // Servers holds the list of servers.
 type Servers struct {
-	IS csi.IdentityServer
-	CS csi.ControllerServer
-	NS csi.NodeServer
-	GS csi.GroupControllerServer
+	IS  csi.IdentityServer
+	CS  csi.ControllerServer
+	NS  csi.NodeServer
+	GS  csi.GroupControllerServer
+	SMS csi.SnapshotMetadataServer
 }
 
 // NewNonBlockingGRPCServer return non-blocking GRPC.
@@ -106,8 +107,10 @@ func (s *nonBlockingGRPCServer) serve(
 		klog.Fatalf("Failed to listen: %v", err)
 	}
 
-	server := grpc.NewServer(NewMiddlewareServerOption(middlewareConfig))
-	s.server = server
+	middleWareServerOption := NewMiddlewareServerOption(middlewareConfig)
+	middleWareStreamServerOption := NewMiddlewareStreamServerOption()
+
+	server := grpc.NewServer(middleWareServerOption, middleWareStreamServerOption)
 
 	if srv.IS != nil {
 		csi.RegisterIdentityServer(server, srv.IS)
@@ -120,6 +123,9 @@ func (s *nonBlockingGRPCServer) serve(
 	}
 	if srv.GS != nil {
 		csi.RegisterGroupControllerServer(server, srv.GS)
+	}
+	if srv.SMS != nil {
+		csi.RegisterSnapshotMetadataServer(server, srv.SMS)
 	}
 
 	log.DefaultLog("Listening for connections on address: %#v", listener.Addr())

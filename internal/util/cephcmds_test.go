@@ -86,3 +86,87 @@ func TestExecCommandWithTimeout(t *testing.T) {
 		})
 	}
 }
+
+func TestFetchClientID(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		clientInfo  string
+		expectedID  int
+		expectedErr bool
+	}{
+		{
+			clientInfo:  "client.4305 172.21.9.34:0/422650892",
+			expectedID:  4305,
+			expectedErr: false,
+		},
+		{
+			clientInfo:  "",
+			expectedID:  0,
+			expectedErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.clientInfo, func(t *testing.T) {
+			t.Parallel()
+			ac := &ActiveClient{Inst: tt.clientInfo}
+			actualID, actualErr := ac.FetchClientID()
+
+			if (actualErr != nil) != tt.expectedErr {
+				t.Errorf("expected error %v but got %v", tt.expectedErr, actualErr)
+			}
+
+			if actualID != tt.expectedID {
+				t.Errorf("expected ID %d but got %d", tt.expectedID, actualID)
+			}
+		})
+	}
+}
+
+func TestFetchIP(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		clientInfo  string
+		expectedIP  string
+		expectedErr bool
+	}{
+		{
+			clientInfo:  "client.4305 172.21.9.34:0/422650892",
+			expectedIP:  "172.21.9.34",
+			expectedErr: false,
+		},
+		{
+			clientInfo:  "client.4305 2001:0db8:85a3:0000:0000:8a2e:0370:7334:0/422650892",
+			expectedIP:  "2001:db8:85a3::8a2e:370:7334",
+			expectedErr: false,
+		},
+		{
+			clientInfo:  "client.24152 v1:100.64.0.7:0/3658550259",
+			expectedIP:  "100.64.0.7",
+			expectedErr: false,
+		},
+		{
+			clientInfo:  "",
+			expectedIP:  "",
+			expectedErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.clientInfo, func(t *testing.T) {
+			t.Parallel()
+
+			client := ActiveClient{Inst: tt.clientInfo}
+			ip, actualErr := client.FetchIP()
+
+			if (actualErr != nil) != tt.expectedErr {
+				t.Errorf("expected error %v but got %v", tt.expectedErr, actualErr)
+			}
+
+			if ip != tt.expectedIP {
+				t.Errorf("expected IP %s but got %s", tt.expectedIP, ip)
+			}
+		})
+	}
+}

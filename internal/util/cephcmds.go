@@ -19,6 +19,7 @@ package util
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -35,7 +36,13 @@ const (
 	// InvalidPoolID used to denote an invalid pool.
 	InvalidPoolID int64 = -1
 	blocklistTime       = "157784760"
+	mdsRank             = 0
 )
+
+// activeClient represents the structure of an active client.
+type ActiveClient struct {
+	Inst string `json:"inst"`
+}
 
 // ExecuteCommandWithNSEnter executes passed in program with args with nsenter
 // and returns separate stdout and stderr streams. In case ctx is not set to
@@ -298,6 +305,8 @@ func RemoveObject(ctx context.Context, monitors string, cr *Credentials, poolNam
 	return nil
 }
 
+// AddCephBlocklist adds the IP passed in to the Ceph blocklist.
+// If useRange is true, it will add the range blocklist entry for the IP.
 func AddCephBlocklist(ctx context.Context, monitors string, cr *Credentials, ip string, useRange bool) error {
 	arg := []string{
 		"--id=" + cr.ID,
@@ -326,6 +335,10 @@ func AddCephBlocklist(ctx context.Context, monitors string, cr *Credentials, ip 
 	return nil
 }
 
+// RemoveCephBlocklist removes the IP passed in from the Ceph blocklist.
+// If nonce is not empty and useRange is false, it will remove the blocklist
+// entry with the nonce. If useRange is true, it will remove the range blocklist
+// entry for the IP.
 func RemoveCephBlocklist(ctx context.Context, monitors string, cr *Credentials, ip, nonce string, useRange bool) error {
 	arg := []string{
 		"--id=" + cr.ID,
@@ -353,6 +366,81 @@ func RemoveCephBlocklist(ctx context.Context, monitors string, cr *Credentials, 
 		return fmt.Errorf("failed to unblock IP %q: %v %w", ip, stdErr, err)
 	}
 	log.DebugLog(ctx, "unblocked IP %q successfully", ip)
+
+	return nil
+}
+
+func (ac *ActiveClient) FetchIP() (string, error) {
+	// example: "inst": "client.4305 172.21.9.34:0/422650892",
+	// then returning value will be 172.21.9.34
+	if ac == nil || ac.Inst == "" {
+		return "", errors.New("active client instance is nil or empty")
+	}
+
+	return ParseClientIP(ac.Inst)
+}
+
+func (ac *ActiveClient) FetchClientID() (int, error) {
+	if ac == nil || ac.Inst == "" {
+		return 0, errors.New("active client instance is nil or empty")
+	}
+
+	// example: "inst": "client.4305 172.21.9.34:0/422650892",
+	// then returning value will be 4305
+	var clientID int
+	_, err := fmt.Sscanf(ac.Inst, "client.%d", &clientID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse client ID from %s: %w", ac.Inst, err)
+	}
+
+	return clientID, nil
+}
+
+// ListActiveClients lists the active clients connected to the CephFS MDS.
+func ListActiveClients(ctx context.Context, monitors string, cr *Credentials) ([]ActiveClient, error) {
+	arg := []string{
+		"--id=" + cr.ID,
+		"--keyfile=" + cr.KeyFile,
+		"-m=" + monitors,
+	}
+	// FIXME: replace the ceph command with go-ceph API in future
+	cmd := []string{"tell", fmt.Sprintf("mds.%d", mdsRank), "client", "ls"}
+	cmd = append(cmd, arg...)
+	stdout, stdErr, err := ExecCommandWithTimeout(ctx, 2*time.Minute, "ceph", cmd...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list active clients: %w, stderr: %q", err, stdErr)
+	}
+
+	var activeClients []ActiveClient
+	if err := json.Unmarshal([]byte(stdout), &activeClients); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
+	}
+
+	return activeClients, nil
+}
+
+// EvictCephFSClient evicts the client with the given clientID from the CephFS MDS.
+func EvictCephFSClient(ctx context.Context, monitors string, cr *Credentials, clientID int) error {
+	arg := []string{
+		"--id=" + cr.ID,
+		"--keyfile=" + cr.KeyFile,
+		"-m=" + monitors,
+	}
+
+	// FIXME: replace the ceph command with go-ceph API in future.
+	cmd := []string{
+		"tell",
+		fmt.Sprintf("mds.%d", mdsRank),
+		"client",
+		"evict",
+		fmt.Sprintf("id=%d", clientID),
+	}
+	cmd = append(cmd, arg...)
+	_, stdErr, err := ExecCommandWithTimeout(ctx, 2*time.Minute, "ceph", cmd...)
+	if err != nil {
+		return fmt.Errorf("failed to evict client %d: %w, stderr: %q", clientID, err, stdErr)
+	}
+	log.DebugLog(ctx, "client %s has been evicted from CephFS\n", clientID)
 
 	return nil
 }

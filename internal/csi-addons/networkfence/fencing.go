@@ -18,12 +18,9 @@ package networkfence
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -102,14 +99,14 @@ func (nf *NetworkFence) AddClientEviction(ctx context.Context) error {
 	for _, cidr := range nf.Cidr {
 		for _, client := range activeClients {
 			var clientIP string
-			clientIP, err = client.fetchIP()
+			clientIP, err = client.FetchIP()
 			if err != nil {
 				return fmt.Errorf("error fetching client IP: %w", err)
 			}
 			// check if the clientIP is in the CIDR block
 			if isIPInCIDR(ctx, clientIP, cidr) {
 				var clientID int
-				clientID, err = client.fetchID()
+				clientID, err = client.FetchClientID()
 				if err != nil {
 					return fmt.Errorf("error fetching client ID: %w", err)
 				}
@@ -251,44 +248,12 @@ func (nf *NetworkFence) addCephBlocklist(ctx context.Context, ip string, useRang
 	return util.AddCephBlocklist(ctx, nf.Monitors, nf.cr, ip, useRange)
 }
 
-func (nf *NetworkFence) listActiveClients(ctx context.Context) ([]activeClient, error) {
-	arg := []string{
-		"--id", nf.cr.ID,
-		"--keyfile=" + nf.cr.KeyFile,
-		"-m", nf.Monitors,
-	}
-	// FIXME: replace the ceph command with go-ceph API in future
-	cmd := []string{"tell", fmt.Sprintf("mds.%d", mdsRank), "client", "ls"}
-	cmd = append(cmd, arg...)
-	stdout, stdErr, err := util.ExecCommandWithTimeout(ctx, 2*time.Minute, "ceph", cmd...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list active clients: %w, stderr: %q", err, stdErr)
-	}
-
-	var activeClients []activeClient
-	if err := json.Unmarshal([]byte(stdout), &activeClients); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
-	}
-
-	return activeClients, nil
+func (nf *NetworkFence) listActiveClients(ctx context.Context) ([]util.ActiveClient, error) {
+	return util.ListActiveClients(ctx, nf.Monitors, nf.cr)
 }
 
 func (nf *NetworkFence) evictCephFSClient(ctx context.Context, clientID int) error {
-	arg := []string{
-		"--id", nf.cr.ID,
-		"--keyfile=" + nf.cr.KeyFile,
-		"-m", nf.Monitors,
-	}
-	// FIXME: replace the ceph command with go-ceph API in future
-	cmd := []string{"tell", fmt.Sprintf("mds.%d", mdsRank), "client", "evict", fmt.Sprintf("id=%d", clientID)}
-	cmd = append(cmd, arg...)
-	_, stdErr, err := util.ExecCommandWithTimeout(ctx, 2*time.Minute, "ceph", cmd...)
-	if err != nil {
-		return fmt.Errorf("failed to evict client %d: %w, stderr: %q", clientID, err, stdErr)
-	}
-	log.DebugLog(ctx, "client %s has been evicted from CephFS\n", clientID)
-
-	return nil
+	return util.EvictCephFSClient(ctx, nf.Monitors, nf.cr, clientID)
 }
 
 func isIPInCIDR(ctx context.Context, ip, cidr string) bool {
@@ -310,30 +275,6 @@ func isIPInCIDR(ctx context.Context, ip, cidr string) bool {
 
 	// Check if the IP address is within the CIDR block
 	return ipCidr.Contains(ipAddress)
-}
-
-func (ac *activeClient) fetchIP() (string, error) {
-	// example: "inst": "client.4305 172.21.9.34:0/422650892",
-	// then returning value will be 172.21.9.34
-	return ParseClientIP(ac.Inst)
-}
-
-func (ac *activeClient) fetchID() (int, error) {
-	// example: "inst": "client.4305 172.21.9.34:0/422650892",
-	// then returning value will be 4305
-	clientInfo := ac.Inst
-	parts := strings.Fields(clientInfo)
-	if len(parts) >= 1 {
-		clientIDStr := strings.TrimPrefix(parts[0], "client.")
-		clientID, err := strconv.Atoi(clientIDStr)
-		if err != nil {
-			return 0, fmt.Errorf("failed to convert client ID to int: %w", err)
-		}
-
-		return clientID, nil
-	}
-
-	return 0, fmt.Errorf("failed to extract client ID, incorrect format: %s", clientInfo)
 }
 
 // getIPRange returns a list of IPs from the IP range
@@ -452,30 +393,4 @@ func (nf *NetworkFence) parseBlocklistForCIDR(ctx context.Context, blocklist, ci
 	}
 
 	return matchingHosts
-}
-
-func ParseClientIP(addr string) (string, error) {
-	// Attempt to extract the IP address using a regular expression
-	// the regular expression aims to match either a complete IPv6
-	// address or a complete IPv4 address follows by any prefix (v1 or v2)
-	// if exists
-	// (?:v[0-9]+:): this allows for an optional prefix starting with "v"
-	// followed by one or more digits and a colon.
-	// The ? outside the group makes the entire prefix section optional.
-	// (?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}: this allows to check for
-	// standard IPv6 address.
-	// |: Alternation operator to allow matching either the IPv6 pattern
-	// with a prefix or the IPv4 pattern.
-	// '(?:\d+\.){3}\d+: This part matches a standard IPv4 address.
-	re := regexp.MustCompile(`(?:v[0-9]+:)?([0-9a-fA-F]{1,4}(:[0-9a-fA-F]{1,4}){7}|(?:\d+\.){3}\d+)`)
-	ipMatches := re.FindStringSubmatch(addr)
-
-	if len(ipMatches) > 0 {
-		ip := net.ParseIP(ipMatches[1])
-		if ip != nil {
-			return ip.String(), nil
-		}
-	}
-
-	return "", fmt.Errorf("failed to extract IP address, incorrect format: %s", addr)
 }

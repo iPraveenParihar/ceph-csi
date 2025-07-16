@@ -53,6 +53,9 @@ type NodeServer struct {
 	kernelMountOptions string
 	fuseMountOptions   string
 	healthChecker      hc.Manager
+
+	// Set metadata on volume
+	SetMetadata bool
 }
 
 func getCredentialsForVolume(

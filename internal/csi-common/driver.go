@@ -48,7 +48,7 @@ type CSIDriver struct {
 // NewCSIDriver Creates a NewCSIDriver object. Assumes vendor
 // version is equal to driver version &  does not support optional
 // driver plugin info manifest field. Refer to CSI spec for more details.
-func NewCSIDriver(name, v, nodeID, instance string, enableFencing bool) *CSIDriver {
+func NewCSIDriver(name, v, nodeID, instance string) *CSIDriver {
 	if name == "" {
 		klog.Errorf("Driver name missing")
 
@@ -74,14 +74,20 @@ func NewCSIDriver(name, v, nodeID, instance string, enableFencing bool) *CSIDriv
 	}
 
 	driver := CSIDriver{
-		name:          name,
-		version:       v,
-		nodeID:        nodeID,
-		instance:      instance,
-		enableFencing: enableFencing,
+		name:     name,
+		version:  v,
+		nodeID:   nodeID,
+		instance: instance,
 	}
 
 	return &driver
+}
+
+// WithFencing sets the fencing flag for the driver.
+func (d *CSIDriver) WithFencing(value bool) *CSIDriver {
+	d.enableFencing = value
+
+	return d
 }
 
 // GetInstance returns the instance identification of the CSI driver.

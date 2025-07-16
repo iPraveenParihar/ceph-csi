@@ -55,6 +55,9 @@ type NodeServer struct {
 	ext4HasPrezeroedSupport featureFlag
 	// xfsHasReflinkSupport indicates whether the xfs filesystem has support for reflink.
 	xfsHasReflinkSupport featureFlag
+
+	// Set metadata on volume
+	SetMetadata bool
 }
 
 // stageTransaction struct represents the state a transaction was when it either completed

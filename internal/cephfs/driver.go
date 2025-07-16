@@ -127,8 +127,9 @@ func (fs *Driver) Run(conf *util.Config) {
 		fsutil.RadosNamespace)
 	// Initialize default library driver
 
-	fs.cd = csicommon.NewCSIDriver(conf.DriverName, util.DriverVersion, conf.NodeID, conf.InstanceID,
-		conf.EnableFencing)
+	fs.cd = csicommon.NewCSIDriver(
+		conf.DriverName, util.DriverVersion, conf.NodeID, conf.InstanceID,
+	).WithFencing(conf.EnableFencing)
 	if fs.cd == nil {
 		log.FatalLogMsg("failed to initialize CSI driver")
 	}
@@ -141,8 +142,8 @@ func (fs *Driver) Run(conf *util.Config) {
 			csi.ControllerServiceCapability_RPC_CLONE_VOLUME,
 			csi.ControllerServiceCapability_RPC_SINGLE_NODE_MULTI_WRITER,
 		}
-		// if fencing is enabled, we can add the PUBLISH_UNPUBLISH_VOLUME capability.
-		if fs.cd.IsFencingEnabled() {
+		// if fencing or setmetadata flag is enabled, we need PUBLISH_UNPUBLISH_VOLUME capability.
+		if fs.cd.IsFencingEnabled() || conf.SetMetadata {
 			controllerServiceCapabilities = append(
 				controllerServiceCapabilities,
 				csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
@@ -175,6 +176,7 @@ func (fs *Driver) Run(conf *util.Config) {
 			conf.KernelMountOptions, conf.FuseMountOptions,
 			nodeLabels, topology, crushLocationMap,
 		)
+		fs.ns.SetMetadata = conf.SetMetadata
 	}
 
 	if conf.IsControllerServer {

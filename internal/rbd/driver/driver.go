@@ -104,8 +104,9 @@ func (r *Driver) Run(conf *util.Config) {
 	rbd.InitJournals(conf.InstanceID)
 
 	// Initialize default library driver
-	r.cd = csicommon.NewCSIDriver(conf.DriverName, util.DriverVersion, conf.NodeID, conf.InstanceID,
-		conf.EnableFencing)
+	r.cd = csicommon.NewCSIDriver(
+		conf.DriverName, util.DriverVersion, conf.NodeID, conf.InstanceID,
+	).WithFencing(conf.EnableFencing)
 	if r.cd == nil {
 		log.FatalLogMsg("Failed to initialize CSI Driver.")
 	}
@@ -116,8 +117,8 @@ func (r *Driver) Run(conf *util.Config) {
 			csi.ControllerServiceCapability_RPC_CLONE_VOLUME,
 			csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
 		}
-		// if fencing is enabled, we can add the PUBLISH_UNPUBLISH_VOLUME capability.
-		if r.cd.IsFencingEnabled() {
+		// if fencing or setmetadata flag is enabled, we need PUBLISH_UNPUBLISH_VOLUME capability.
+		if r.cd.IsFencingEnabled() || conf.SetMetadata {
 			controllerServiceCapabilities = append(
 				controllerServiceCapabilities,
 				csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
@@ -172,7 +173,7 @@ func (r *Driver) Run(conf *util.Config) {
 			log.FatalLogMsg("%v", err.Error())
 		}
 		r.ns = NewNodeServer(r.cd, conf.Vtype, nodeLabels, topology, crushLocationMap)
-
+		r.ns.SetMetadata = conf.SetMetadata
 		var attr string
 		attr, err = rbd.GetKrbdSupportedFeatures()
 		if err != nil && !errors.Is(err, os.ErrNotExist) {

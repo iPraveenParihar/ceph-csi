@@ -402,6 +402,12 @@ func (ns *NodeServer) NodeStageVolume(
 		return &csi.NodeStageVolumeResponse{}, nil
 	}
 
+	// Set UserId mapping in the image metadata
+	err = ns.setUserIdMapping(ctx, cr, rv, isStaticVol)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to set userId mapping for %s: %v", rv, err)
+	}
+
 	// Set ClientAddress in the image metadata
 	err = ns.setClientAddress(ctx, cr, rv)
 	if err != nil {
@@ -433,6 +439,28 @@ func (ns *NodeServer) NodeStageVolume(
 		stagingTargetPath)
 
 	return &csi.NodeStageVolumeResponse{}, nil
+}
+
+// setUserIdMapping sets the user ID mapping in the RBD image metadata.
+// The user ID is the ceph user used for mounting the RBD image.
+// If the '--setmetadata' flag is set to false in CSI driver configuration or if the volume is static it does nothing.
+func (ns *NodeServer) setUserIdMapping(
+	ctx context.Context, cr *util.Credentials, rv *rbdVolume, isStaticVol bool,
+) error {
+	if !ns.SetMetadata || isStaticVol {
+		return nil
+	}
+
+	nodeId := ns.Driver.GetNodeID()
+	metadataKey := getUserIDMappingKey(rv.VolID, nodeId)
+	err := rv.SetMetadata(metadataKey, cr.ID)
+	if err != nil {
+		return fmt.Errorf("failed to set client address for %s: %w", rv, err)
+	}
+
+	log.DebugLog(ctx, "user ID mapping %s set in metadata for image %s", metadataKey, rv)
+
+	return nil
 }
 
 // setClientAddress extracts the client IP address and stores it in the RBD image metadata.

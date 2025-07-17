@@ -1218,12 +1218,77 @@ func (cs *ControllerServer) ControllerUnpublishVolume(
 	}
 	defer volOptions.Destroy()
 
+	err = cs.removeUserIdMapping(ctx, volumeId, req.GetNodeId(), secrets, credentials, volOptions)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
 	err = cs.fenceNode(ctx, req.GetNodeId(), volOptions, credentials)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
 	return &csi.ControllerUnpublishVolumeResponse{}, nil
+}
+
+// removeUserIdMapping attempts to remove nodeId:userId mapping in metadata from the subvolume.
+//
+// Parameters:
+//   - volumeId: The ID of the volume for which we want to remove the user ID mapping.
+//   - nodeId: The ID of the node that we want to remove the user ID mapping for.
+//   - volOptions: The volume options for the CephFS subvolume.
+//
+// Behavior:
+//   - If the '--setmetadata' flag is set to false in CSI driver configuration, does nothing.
+//   - Removes the user ID mapping metadata for the specified nodeId from the subvolume.
+func (cs *ControllerServer) removeUserIdMapping(
+	ctx context.Context,
+	volumeId, nodeId string,
+	secrets map[string]string,
+	cr *util.Credentials,
+	volOptions *store.VolumeOptions,
+) error {
+	if !cs.SetMetadata {
+		return nil
+	}
+	if nodeId == "" {
+		return errors.New("nodeId cannot be empty")
+	}
+	conn := volOptions.GetConnection()
+	volClient := core.NewSubVolume(
+		conn, &volOptions.SubVolume, volOptions.ClusterID,
+		cs.ClusterName, cs.SetMetadata,
+	)
+	metadataKey := core.GetUserIDMappingKey(volumeId, nodeId)
+	if volOptions.BackingSnapshot {
+		volOpt, _, sid, err := store.NewSnapshotOptionsFromID(ctx, volOptions.BackingSnapshotID, cr, secrets, "", true)
+		if err != nil {
+			return err
+		}
+		defer volOpt.Destroy()
+		snapClient := core.NewSnapshot(conn, sid.FsSnapshotName, volOpt.ClusterID, "", true, &volOpt.SubVolume)
+		err = snapClient.UnsetAllSnapshotMetadata([]string{metadataKey})
+		if err != nil {
+			return fmt.Errorf("failed to remove user ID mapping for subvolume snapshot %s: %w",
+				sid.FsSnapshotName, err)
+		}
+
+		log.DebugLog(ctx, "userID mapping metadata %s unset for subvolume snapshot %s",
+			metadataKey, sid.FsSnapshotName)
+
+		return nil
+	}
+
+	err := volClient.UnsetAllMetadata([]string{metadataKey})
+	if err != nil {
+		return fmt.Errorf("failed to remove user ID mapping for subvolume %s: %w",
+			volOptions.SubVolume.VolID, err)
+	}
+
+	log.DebugLog(ctx, "userID mapping metadata %s unset for subvolume %s",
+		metadataKey, volOptions.SubVolume.VolID)
+
+	return nil
 }
 
 // fenceNode attempts to fence a client node from accessing the CephFS subvolume.

@@ -530,6 +530,13 @@ var _ = Describe("RBD", func() {
 				})
 			}
 
+			By("verify userId mapping metadata exists", func() {
+				err := verifyUserIdMappingMetadata(f, pvcPath, appPath, rbdType)
+				if err != nil {
+					framework.Failf("failed to verify userId mapping metadata exists: %v", err)
+				}
+			})
+
 			By("verify readAffinity support", func() {
 				err := verifyReadAffinity(f, pvcPath, appPath,
 					rbdDeployment.getDaemonsetName(), rbdContainerName, cephCSINamespace)
@@ -907,18 +914,20 @@ var _ = Describe("RBD", func() {
 				// validate created backend rbd images
 				validateRBDImageCount(f, 1, defaultRBDPool)
 				validateOmapCount(f, 1, rbdType, defaultRBDPool, volumesType)
-				pvcName := app.Spec.Volumes[0].Name
+				pvcName := fmt.Sprintf("%s-%s", app.Name, app.Spec.Volumes[0].Name)
+				pvc, err := getPersistentVolumeClaim(c, app.Namespace, pvcName)
+				if err != nil {
+					framework.Failf("failed to get pvc: %v", err)
+				}
 				err = deletePod(app.Name, app.Namespace, f.ClientSet, deployTimeout)
 				if err != nil {
 					logAndFail("failed to delete application: %v", err)
 				}
-
-				// wait for the associated PVC to be deleted
-				err = waitForPVCToBeDeleted(f.ClientSet, app.Namespace, pvcName, deployTimeout)
+				// wait for the associated PV to be deleted
+				err = waitForPVToBeDeleted(f.ClientSet, pvc.Spec.VolumeName, deployTimeout)
 				if err != nil {
-					logAndFail("failed to wait for PVC deletion: %v", err)
+					logAndFail("failed to wait for PV to be deleted: %v", err)
 				}
-
 				// validate created backend rbd images
 				validateRBDImageCount(f, 0, defaultRBDPool)
 				validateOmapCount(f, 0, rbdType, defaultRBDPool, volumesType)

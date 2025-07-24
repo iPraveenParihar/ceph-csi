@@ -361,6 +361,26 @@ var _ = Describe(cephfsType, func() {
 				})
 			}
 
+			By("verify userId mapping metadata exists", func() {
+				err := createCephfsStorageClass(f.ClientSet, f, true, nil)
+				if err != nil {
+					framework.Failf("failed to create CephFS storageclass: %v", err)
+				}
+
+				err = verifyUserIdMappingMetadata(f, pvcPath, appPath, cephfsType)
+				if err != nil {
+					framework.Failf("failed to verify userId mapping metadata exists: %v", err)
+				}
+
+				validateSubvolumeCount(f, 0, fileSystemName, subvolumegroup)
+				validateOmapCount(f, 0, cephfsType, metadataPool, volumesType)
+
+				err = deleteResource(cephFSExamplePath + "storageclass.yaml")
+				if err != nil {
+					framework.Failf("failed to delete CephFS storageclass: %v", err)
+				}
+			})
+
 			By("verify PVC and App Binding with volumeBindingMode:WaitForFirstConsumer", func() {
 				err := createCephfsStorageClassWaitForFirstConsumer(f.ClientSet, f, true, nil)
 				if err != nil {
@@ -456,19 +476,21 @@ var _ = Describe(cephfsType, func() {
 				}
 				validateSubvolumeCount(f, 1, fileSystemName, subvolumegroup)
 				validateOmapCount(f, 1, cephfsType, metadataPool, volumesType)
-				pvcName := app.Spec.Volumes[0].Name
+				pvcName := fmt.Sprintf("%s-%s", app.Name, app.Spec.Volumes[0].Name)
+				pvc, err := getPersistentVolumeClaim(c, app.Namespace, pvcName)
+				if err != nil {
+					framework.Failf("failed to get pvc: %v", err)
+				}
 				// delete pod
 				err = deletePod(app.Name, app.Namespace, f.ClientSet, deployTimeout)
 				if err != nil {
 					logAndFail("failed to delete application: %v", err)
 				}
-
-				// wait for the associated PVC to be deleted
-				err = waitForPVCToBeDeleted(f.ClientSet, app.Namespace, pvcName, deployTimeout)
+				// wait for the associated PV to be deleted
+				err = waitForPVToBeDeleted(f.ClientSet, pvc.Spec.VolumeName, deployTimeout)
 				if err != nil {
-					logAndFail("failed to wait for PVC deletion: %v", err)
+					logAndFail("failed to wait for PV to be deleted: %v", err)
 				}
-
 				validateSubvolumeCount(f, 0, fileSystemName, subvolumegroup)
 				validateOmapCount(f, 0, cephfsType, metadataPool, volumesType)
 				err = deleteResource(cephFSExamplePath + "storageclass.yaml")
@@ -1930,6 +1952,26 @@ var _ = Describe(cephfsType, func() {
 				err = createPVCAndApp("", f, pvcClone, appClone, deployTimeout)
 				if err != nil {
 					logAndFail("failed to create PVC and app: %v", err)
+				}
+
+				// Verify user ID mapping metadata of snapshot-backed PVC.
+				appClone, err = getPod(f.ClientSet, appClone.Namespace, appClone.Name)
+				if err != nil {
+					logAndFail("failed to get app pod: %v", err)
+				}
+				backingSubvolumeNameData, err := getImageInfoFromPVC(pvc.Namespace, pvc.Name, f)
+				if err != nil {
+					logAndFail("failed to get backing subvolume name from PVC: %v", err)
+				}
+				backingSnapshotName, err := getSnapName(snap.Namespace, snap.Name)
+				if err != nil {
+					logAndFail("failed to get backing snapshot name: %v", err)
+				}
+				err = verifyUserIdMappingMetadataSnapshotBacked(
+					f, pvcClone, appClone, backingSubvolumeNameData.imageName, backingSnapshotName,
+				)
+				if err != nil {
+					logAndFail("failed to verify user ID mapping metadata of snapshot-backed PVC: %v", err)
 				}
 
 				// Snapshot-backed volume shouldn't contribute to total subvolume count.

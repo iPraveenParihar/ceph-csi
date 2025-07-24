@@ -582,6 +582,11 @@ func validatePVCAndAppWaitForFirstConsumer(pvcPath, appPath string, f *framework
 		return err
 	}
 
+	_, err = getBoundPV(f.ClientSet, pvc)
+	if err != nil {
+		return err
+	}
+
 	err = deletePVCAndApp("", f, pvc, app)
 
 	return err

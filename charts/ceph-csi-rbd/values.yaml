@@ -513,6 +513,8 @@ storageClass:
   provisionerSecretNamespace: ""
   controllerExpandSecret: csi-rbd-secret
   controllerExpandSecretNamespace: ""
+  controllerPublishSecret: csi-rbd-secret
+  controllerPublishSecretNamespace: ""
   nodeStageSecret: csi-rbd-secret
   nodeStageSecretNamespace: ""
   # Specify the filesystem type of the volume. If not specified,

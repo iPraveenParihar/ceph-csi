@@ -382,6 +382,8 @@ storageClass:
   provisionerSecretNamespace: ""
   controllerExpandSecret: csi-cephfs-secret
   controllerExpandSecretNamespace: ""
+  controllerPublishSecret: csi-cephfs-secret
+  controllerPublishSecretNamespace: ""
   nodeStageSecret: csi-cephfs-secret
   nodeStageSecretNamespace: ""
   reclaimPolicy: Delete

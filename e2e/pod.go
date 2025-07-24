@@ -688,7 +688,7 @@ func verifyReadAffinity(
 		configInfos, stdErr, err = execCommandInContainer(f, command, ns, cn, &opt)
 		if strings.TrimSpace(configInfos) != "" {
 			framework.Logf("configInfos: %v, err=%v", configInfos, err)
-			//override error if the configInfo is found.
+			// override error if the configInfo is found.
 			err = nil
 			break
 		}

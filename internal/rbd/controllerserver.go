@@ -1705,12 +1705,33 @@ func (cs *ControllerServer) ControllerPublishVolume(
 		return nil, status.Error(codes.InvalidArgument, "Volume Capabilities cannot be empty")
 	}
 
-	if acquired := cs.VolumeLocks.TryAcquire(req.GetVolumeId()); !acquired {
+	volumeId := req.GetVolumeId()
+	if acquired := cs.VolumeLocks.TryAcquire(volumeId); !acquired {
 		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, req.GetVolumeId())
 	}
-	defer cs.VolumeLocks.Release(req.GetVolumeId())
+	defer cs.VolumeLocks.Release(volumeId)
 
-	err := cs.unfenceNode(ctx, req.GetNodeId(), req.GetVolumeId(), req.GetSecrets())
+	secrets, err := util.GetControllerPublishSecret(req.GetSecrets(), volumeId, util.RBDType)
+	if err != nil {
+		log.WarningLog(ctx, "controller publish secret not found: %v", err)
+
+		return &csi.ControllerPublishVolumeResponse{}, nil
+	}
+
+	credentials, err := util.NewAdminCredentials(secrets)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to create credentials from secrets: %v", err)
+	}
+	defer credentials.DeleteCredentials()
+
+	rv, err := GenVolFromVolID(ctx, volumeId, credentials, secrets)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to generate volume from volume ID %s: %v",
+			volumeId, err)
+	}
+	defer rv.Destroy(ctx)
+
+	err = cs.unfenceNode(ctx, req.GetNodeId(), rv, credentials)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to unfence node %s: %v", req.GetNodeId(), err)
 	}
@@ -1734,12 +1755,33 @@ func (cs *ControllerServer) ControllerUnpublishVolume(
 		return nil, status.Error(codes.InvalidArgument, "Volume ID cannot be empty")
 	}
 
-	if acquired := cs.VolumeLocks.TryAcquire(req.GetVolumeId()); !acquired {
-		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, req.GetVolumeId())
+	volumeId := req.GetVolumeId()
+	if acquired := cs.VolumeLocks.TryAcquire(volumeId); !acquired {
+		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, volumeId)
 	}
-	defer cs.VolumeLocks.Release(req.GetVolumeId())
+	defer cs.VolumeLocks.Release(volumeId)
 
-	err := cs.fenceNode(ctx, req.GetNodeId(), req.GetVolumeId(), req.GetSecrets())
+	secrets, err := util.GetControllerPublishSecret(req.GetSecrets(), volumeId, util.RBDType)
+	if err != nil {
+		log.WarningLog(ctx, "controller publish secret not found: %v", err)
+
+		return &csi.ControllerUnpublishVolumeResponse{}, nil
+	}
+
+	credentials, err := util.NewAdminCredentials(secrets)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to create credentials from secrets: %v", err)
+	}
+	defer credentials.DeleteCredentials()
+
+	rv, err := GenVolFromVolID(ctx, volumeId, credentials, secrets)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to generate volume from volume ID %s: %v",
+			volumeId, err)
+	}
+	defer rv.Destroy(ctx)
+
+	err = cs.fenceNode(ctx, req.GetNodeId(), rv, credentials)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to fence node %s: %v", req.GetNodeId(), err)
 	}
@@ -1751,9 +1793,8 @@ func (cs *ControllerServer) ControllerUnpublishVolume(
 //
 // Parameters:
 //   - nodeId: The ID of the node that may be fenced.
-//   - volumeId: The CSI volume ID corresponding to the RBD image.
-//   - secrets: A map of secrets. If nil, the function attempts to retrieve the
-//     controller publish secret from the ceph-csi-config ConfigMap.
+//   - rbdVolume: The rbdVolume object representing the RBD image.
+//   - credentials: The credentials to access the Ceph cluster.
 //
 // Behavior:
 //   - If `IsFencingEnabled` is false, the function returns immediately
@@ -1766,8 +1807,9 @@ func (cs *ControllerServer) ControllerUnpublishVolume(
 // Returns an error if any step in the fencing process fails.
 func (cs *ControllerServer) fenceNode(
 	ctx context.Context,
-	nodeId, volumeId string,
-	secrets map[string]string,
+	nodeId string,
+	rv *rbdVolume,
+	credentials *util.Credentials,
 ) error {
 	if !cs.Driver.IsFencingEnabled() {
 		return nil
@@ -1776,34 +1818,7 @@ func (cs *ControllerServer) fenceNode(
 		return errors.New("nodeId cannot be empty")
 	}
 
-	if secrets == nil {
-		var vi util.CSIIdentifier
-		err := vi.DecomposeCSIID(volumeId)
-		if err != nil {
-			return fmt.Errorf("failed to decode volume ID (%s): %w", volumeId, err)
-		}
-
-		secrets, err = util.GetControllerPublishSecret(vi.ClusterID, util.RBDType)
-		if err != nil {
-			log.WarningLog(ctx, "controller publish secret not found: %v", err)
-
-			return nil
-		}
-	}
-
 	metadataKey := getClientAddressKey(nodeId)
-	credentials, err := util.NewAdminCredentials(secrets)
-	if err != nil {
-		return fmt.Errorf("failed to create credentials from secrets: %w", err)
-	}
-	defer credentials.DeleteCredentials()
-
-	rv, err := GenVolFromVolID(ctx, volumeId, credentials, secrets)
-	if err != nil {
-		return fmt.Errorf("failed to generate volume from volume ID %q: %w",
-			volumeId, err)
-	}
-
 	isOutOfService, err := k8s.IsNodeOutOfService(nodeId)
 	if err != nil {
 		return fmt.Errorf("failed to check if node %s is out of service: %w", nodeId, err)
@@ -1854,9 +1869,8 @@ func (cs *ControllerServer) fenceNode(
 //
 // Parameters:
 //   - nodeId: The ID of the node to be unfenced.
-//   - volumeId: The CSI volume ID associated with the RBD image.
-//   - secrets: A map of secrets. If nil, the function attempts to retrieve the
-//     controller publish secret from the ceph-csi-config ConfigMap.
+//   - rbdVolume: The rbdVolume object representing the RBD image.
+//   - credentials: The credentials to access the Ceph cluster.
 //
 // Behavior:
 //   - If `IsFencingEnabled` is false, the function returns immediately
@@ -1868,39 +1882,15 @@ func (cs *ControllerServer) fenceNode(
 // Returns an error if any step in the unfencing process fails.
 func (cs *ControllerServer) unfenceNode(
 	ctx context.Context,
-	nodeId, volumeId string,
-	secrets map[string]string,
+	nodeId string,
+	rv *rbdVolume,
+	credentials *util.Credentials,
 ) error {
 	if !cs.Driver.IsFencingEnabled() {
 		return nil
 	}
-	if secrets == nil {
-		var vi util.CSIIdentifier
-		err := vi.DecomposeCSIID(volumeId)
-		if err != nil {
-			return fmt.Errorf("failed to decode volume ID (%s): %w", volumeId, err)
-		}
-
-		secrets, err = util.GetControllerPublishSecret(vi.ClusterID, util.RBDType)
-		if err != nil {
-			log.WarningLog(ctx, "controller publish secret not found: %v", err)
-
-			return nil
-		}
-	}
 
 	metadataKey := getClientAddressKey(nodeId)
-	credentials, err := util.NewAdminCredentials(secrets)
-	if err != nil {
-		return fmt.Errorf("failed to create credentials from secrets: %w", err)
-	}
-	defer credentials.DeleteCredentials()
-
-	rv, err := GenVolFromVolID(ctx, volumeId, credentials, secrets)
-	if err != nil {
-		return fmt.Errorf("failed to generate volume from volume ID %s: %w", volumeId, err)
-	}
-
 	clientAddress, err := rv.GetMetadata(metadataKey)
 	if err != nil {
 		if errors.Is(err, librbd.ErrNotFound) {

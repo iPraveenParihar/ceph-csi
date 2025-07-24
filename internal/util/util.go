@@ -329,8 +329,19 @@ func ParseClientIP(addr string) (string, error) {
 
 // GetControllerPublishSecret retrieves the controller publish secret from ceph-csi-config ConfigMap
 // for a given clusterID. Fetches the secret from Kubernetes, and returns it as a map of key-value pairs.
-func GetControllerPublishSecret(clusterID, driverType string) (map[string]string, error) {
-	var getSecretRefFunc func(string, string) (string, string, error)
+func GetControllerPublishSecret(secrets map[string]string, volumeId, driverType string) (map[string]string, error) {
+	if secrets != nil {
+		return secrets, nil
+	}
+
+	var (
+		vi               CSIIdentifier
+		getSecretRefFunc func(string, string) (string, string, error)
+	)
+	err := vi.DecomposeCSIID(volumeId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode volume ID (%s): %w", volumeId, err)
+	}
 
 	switch driverType {
 	case RBDType:
@@ -341,17 +352,17 @@ func GetControllerPublishSecret(clusterID, driverType string) (map[string]string
 		return nil, fmt.Errorf("unsupported driver type: %s", driverType)
 	}
 
-	secretName, secretNamespace, err := getSecretRefFunc(CsiConfigFile, clusterID)
+	secretName, secretNamespace, err := getSecretRefFunc(CsiConfigFile, vi.ClusterID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get controller publish secret details from csi config file: %w", err)
 	}
 
 	if secretName == "" || secretNamespace == "" {
 		return nil, fmt.Errorf("controller publish secret name or namespace is empty"+
-			" in csi config file for cluster %s", clusterID)
+			" in csi config file for cluster %s", vi.ClusterID)
 	}
 
-	secrets, err := k8s.GetSecret(secretName, secretNamespace)
+	secrets, err = k8s.GetSecret(secretName, secretNamespace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get controller publish secret from k8s: %w", err)
 	}

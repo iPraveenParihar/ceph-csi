@@ -168,54 +168,36 @@ func (ns *NodeServer) populateRbdVol(
 	volID := req.GetVolumeId()
 
 	isBlock, isMultiNode := csicommon.IsBlockMultiNode([]*csi.VolumeCapability{req.GetVolumeCapability()})
-	disableInUseChecks := false
+	// disableInUseChecks is set to true if the volume is MultiNode Block volume or else false.
+	disableInUseChecks := isMultiNode && isBlock
 
 	// MULTI_NODE_MULTI_WRITER is supported by default for Block access type volumes
-	if isMultiNode {
-		if !isBlock {
-			log.WarningLog(
-				ctx,
-				"MULTI_NODE_MULTI_WRITER currently only supported with volumes of access type `block`,"+
-					"invalid AccessMode for volume: %v",
-				req.GetVolumeId(),
-			)
+	if isMultiNode && !isBlock {
+		log.WarningLog(
+			ctx,
+			"MULTI_NODE_MULTI_WRITER currently only supported with volumes of access type `block`,"+
+				"invalid AccessMode for volume: %v",
+			req.GetVolumeId(),
+		)
 
-			return nil, status.Error(
-				codes.InvalidArgument,
-				"rbd: RWX access mode request is only valid for volumes with access type `block`",
-			)
-		}
-
-		disableInUseChecks = true
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"rbd: RWX access mode request is only valid for volumes with access type `block`",
+		)
 	}
+
 	var rv *rbdVolume
 
 	isStaticVol := parseBoolOption(ctx, req.GetVolumeContext(), staticVol, false)
 	// get rbd image name from the volume journal
 	// for static volumes, the image name is actually the volume ID itself
 	if isStaticVol {
-		if req.GetVolumeContext()[intreeMigrationKey] == intreeMigrationLabel {
-			// if migration static volume, use imageName as volID
-			volID = req.GetVolumeContext()["imageName"]
-		}
-		rv, err = genVolFromVolumeOptions(ctx, req.GetVolumeContext(), disableInUseChecks, true)
-		if err != nil {
-			return nil, status.Error(codes.Internal, err.Error())
-		}
-		rv.RbdImageName = volID
+		rv, err = initStaticVol(ctx, volID, req.GetVolumeContext(), disableInUseChecks)
 	} else {
-		rv, err = GenVolFromVolID(ctx, volID, cr, req.GetSecrets())
-		if err != nil {
-			rv.Destroy(ctx)
-			log.ErrorLog(ctx, "error generating volume %s: %v", volID, err)
-
-			return nil, status.Errorf(codes.Internal, "error generating volume %s: %v", volID, err)
-		}
-		rv.DataPool = req.GetVolumeContext()["dataPool"]
-		var ok bool
-		if rv.Mounter, ok = req.GetVolumeContext()["mounter"]; !ok {
-			rv.Mounter = rbdDefaultMounter
-		}
+		rv, err = initDynamicVol(ctx, volID, cr, req.GetSecrets(), req.GetVolumeContext())
+	}
+	if err != nil {
+		return nil, err
 	}
 
 	rv.DisableInUseChecks = disableInUseChecks
@@ -270,18 +252,66 @@ func (ns *NodeServer) populateRbdVol(
 		return nil, err
 	}
 
-	rv.VolID = volID
-
-	rv.LogDir = req.GetVolumeContext()["cephLogDir"]
-	if rv.LogDir == "" {
-		rv.LogDir = defaultLogDir
-	}
-	rv.LogStrategy = req.GetVolumeContext()["cephLogStrategy"]
-	if rv.LogStrategy == "" {
-		rv.LogStrategy = defaultLogStrategy
-	}
+	rv.LogDir = defaultIfEmpty(req.GetVolumeContext()["cephLogDir"], defaultLogDir)
+	rv.LogStrategy = defaultIfEmpty(req.GetVolumeContext()["cephLogStrategy"], defaultLogStrategy)
 
 	return rv, err
+}
+
+func initStaticVol(
+	ctx context.Context,
+	volID string,
+	volCtx map[string]string,
+	disableInUseChecks bool,
+) (*rbdVolume, error) {
+	if volCtx[intreeMigrationKey] == intreeMigrationLabel {
+		volID = volCtx["imageName"]
+	}
+
+	rv, err := genVolFromVolumeOptions(ctx, volCtx, disableInUseChecks, true)
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	rv.RbdImageName = volID
+	rv.VolID = volID
+
+	return rv, nil
+}
+
+func initDynamicVol(
+	ctx context.Context,
+	volID string,
+	cr *util.Credentials,
+	secrets map[string]string,
+	volCtx map[string]string,
+) (*rbdVolume, error) {
+	rv, err := GenVolFromVolID(ctx, volID, cr, secrets)
+	if err != nil {
+		if rv != nil {
+			rv.Destroy(ctx)
+		}
+		log.ErrorLog(ctx, "error generating volume %s: %v", volID, err)
+
+		return nil, status.Errorf(codes.Internal, "error generating volume %s: %v", volID, err)
+	}
+
+	rv.DataPool = volCtx["dataPool"]
+	if mounter, ok := volCtx["mounter"]; ok {
+		rv.Mounter = mounter
+	} else {
+		rv.Mounter = rbdDefaultMounter
+	}
+	rv.VolID = volID
+
+	return rv, nil
+}
+
+func defaultIfEmpty(value, defaultVal string) string {
+	if value == "" {
+		return defaultVal
+	}
+
+	return value
 }
 
 // appendReadAffinityMapOptions appends readAffinityMapOptions to mapOptions
@@ -369,6 +399,11 @@ func (ns *NodeServer) NodeStageVolume(
 		return &csi.NodeStageVolumeResponse{}, nil
 	}
 
+	// Set ClientAddress in the image metadata
+	err = ns.setClientAddress(ctx, cr, rv)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to set client address for %s: %v", rv, err)
+	}
 	// Stash image details prior to mapping the image (useful during Unstage as it has no
 	// voloptions passed to the RPC as per the CSI spec)
 	err = stashRBDImageMetadata(rv, stagingParentPath)
@@ -395,6 +430,56 @@ func (ns *NodeServer) NodeStageVolume(
 		stagingTargetPath)
 
 	return &csi.NodeStageVolumeResponse{}, nil
+}
+
+// setClientAddress extracts the client IP address and stores it in the RBD image metadata.
+// The connection.GetAddrs() method returns an address in the format "10.244.0.1:0/2686266785".
+// We parse this to extract just the IP address portion (e.g., "10.244.0.1") and store in metadata.
+// If '--enable-fencing' flag is set to false in CSI driver configuration, this function does nothing.
+func (ns *NodeServer) setClientAddress(
+	ctx context.Context,
+	cr *util.Credentials,
+	rv *rbdVolume,
+) error {
+	if !ns.Driver.IsFencingEnabled() {
+		return nil
+	}
+
+	nodeId := ns.Driver.GetNodeID()
+	metadataKey := getClientAddressKey(nodeId)
+	monitors, _ /* clusterID*/, err := util.GetMonsAndClusterID(ctx, rv.ClusterID, false)
+	if err != nil {
+		return fmt.Errorf("failed to get monitors for cluster %s: %w", rv.ClusterID, err)
+	}
+
+	// Get the cluster ID of the ceph cluster.
+	conn := &util.ClusterConnection{}
+	err = conn.Connect(monitors, cr)
+	if err != nil {
+		return fmt.Errorf("failed to connect to MONs %s: %w", monitors, err)
+	}
+	defer conn.Destroy()
+
+	address, err := conn.GetAddrs()
+	if err != nil {
+		return fmt.Errorf("failed to get client address: %w", err)
+	}
+
+	// The address we get is 10.244.0.1:0/2686266785 from
+	// which we need to extract the IP address.
+	ipAddress, err := util.ParseClientIP(address)
+	if err != nil {
+		return fmt.Errorf("failed to parse client address: %w", err)
+	}
+
+	err = rv.SetMetadata(metadataKey, ipAddress)
+	if err != nil {
+		return fmt.Errorf("failed to set client address for %s: %w", rv, err)
+	}
+
+	log.DebugLog(ctx, "metadata %s set for image %s", metadataKey, rv)
+
+	return nil
 }
 
 func (ns *NodeServer) stageTransaction(

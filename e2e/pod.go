@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	v1 "k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -532,7 +533,7 @@ func validateRWOPPodCreation(
 ) error {
 	var err error
 	// create one more  app with same PVC
-	name := fmt.Sprintf("%s%d", f.UniqueName, deployTimeout)
+	name := fmt.Sprintf("%s-%d", uuid.NewString(), deployTimeout)
 	app.Name = name
 
 	err = createAppErr(f.ClientSet, app, deployTimeout, errRWOPConflict)
@@ -670,10 +671,25 @@ func verifyReadAffinity(
 		LabelSelector: selector,
 	}
 
+	configInfos := ""
+	stdErr := ""
 	command := "cat /sys/devices/rbd/*/config_info"
-	configInfos, _, err := execCommandInContainer(f, command, ns, cn, &opt)
+	// Retry as in some cases the file will get created with some delay
+	for i := range 10 {
+		configInfos, stdErr, err = execCommandInContainer(f, command, ns, cn, &opt)
+		if strings.TrimSpace(configInfos) != "" {
+			framework.Logf("configInfos: %v, err=%v", configInfos, err)
+			//override error if the configInfo is found.
+			err = nil
+			break
+		}
+		// log and continue retry
+		framework.Logf("Attempt %d: failed to execute command %s: stdErr:%s err:%s", i, command, stdErr, err)
+		time.Sleep(1 * time.Second)
+	}
+
 	if err != nil {
-		return fmt.Errorf("failed to execute command %s: %w", command, err)
+		return fmt.Errorf("failed to execute command %s: stdErr:%s err:%w", command, stdErr, err)
 	}
 
 	var configInfo string

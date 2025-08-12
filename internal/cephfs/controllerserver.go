@@ -1156,19 +1156,13 @@ func (cs *ControllerServer) ControllerPublishVolume(
 		return &csi.ControllerPublishVolumeResponse{}, nil
 	}
 
-	credentials, err := util.NewAdminCredentials(secrets)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to create credentials from secrets: %v", err)
-	}
-	defer credentials.DeleteCredentials()
-
 	volOptions, _, err := store.NewVolumeOptionsFromVolID(ctx, volumeId, nil, secrets, cs.ClusterName, cs.SetMetadata)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to generate volume from volume ID %s: %v", volumeId, err)
 	}
 	defer volOptions.Destroy()
 
-	err = cs.unfenceNode(ctx, req.GetNodeId(), volOptions, credentials)
+	err = cs.unfenceNode(ctx, req.GetVolumeId(), req.GetNodeId(), volOptions, secrets)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -1206,24 +1200,18 @@ func (cs *ControllerServer) ControllerUnpublishVolume(
 		return &csi.ControllerUnpublishVolumeResponse{}, nil
 	}
 
-	credentials, err := util.NewAdminCredentials(secrets)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to create credentials from secrets: %v", err)
-	}
-	defer credentials.DeleteCredentials()
-
 	volOptions, _, err := store.NewVolumeOptionsFromVolID(ctx, volumeId, nil, secrets, cs.ClusterName, cs.SetMetadata)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to generate volume from volume ID %s: %v", volumeId, err)
 	}
 	defer volOptions.Destroy()
 
-	err = cs.removeUserIdMapping(ctx, volumeId, req.GetNodeId(), secrets, credentials, volOptions)
+	err = cs.removeUserIdMapping(ctx, volumeId, req.GetNodeId(), secrets, volOptions)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	err = cs.fenceNode(ctx, req.GetNodeId(), volOptions, credentials)
+	err = cs.fenceNode(ctx, req.GetVolumeId(), req.GetNodeId(), secrets, volOptions)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -1237,6 +1225,7 @@ func (cs *ControllerServer) ControllerUnpublishVolume(
 //   - volumeId: The ID of the volume for which we want to remove the user ID mapping.
 //   - nodeId: The ID of the node that we want to remove the user ID mapping for.
 //   - volOptions: The volume options for the CephFS subvolume.
+//   - secrets: The secrets to access the Ceph cluster.
 //
 // Behavior:
 //   - If the '--setmetadata' flag is set to false in CSI driver configuration, does nothing.
@@ -1245,7 +1234,6 @@ func (cs *ControllerServer) removeUserIdMapping(
 	ctx context.Context,
 	volumeId, nodeId string,
 	secrets map[string]string,
-	cr *util.Credentials,
 	volOptions *store.VolumeOptions,
 ) error {
 	if !cs.SetMetadata {
@@ -1254,6 +1242,12 @@ func (cs *ControllerServer) removeUserIdMapping(
 	if nodeId == "" {
 		return errors.New("nodeId cannot be empty")
 	}
+	cr, err := util.NewAdminCredentials(secrets)
+	if err != nil {
+		return fmt.Errorf("failed to create credentials from secrets: %w", err)
+	}
+	defer cr.DeleteCredentials()
+
 	conn := volOptions.GetConnection()
 	volClient := core.NewSubVolume(
 		conn, &volOptions.SubVolume, volOptions.ClusterID,
@@ -1279,7 +1273,7 @@ func (cs *ControllerServer) removeUserIdMapping(
 		return nil
 	}
 
-	err := volClient.UnsetAllMetadata([]string{metadataKey})
+	err = volClient.UnsetAllMetadata([]string{metadataKey})
 	if err != nil {
 		return fmt.Errorf("failed to remove user ID mapping for subvolume %s: %w",
 			volOptions.SubVolume.VolID, err)
@@ -1294,9 +1288,10 @@ func (cs *ControllerServer) removeUserIdMapping(
 // fenceNode attempts to fence a client node from accessing the CephFS subvolume.
 //
 // Parameters:
+//   - volumeId: The ID of the volume for which we want to remove the user ID mapping.
 //   - nodeId: The ID of the node that may be fenced.
+//   - secrets: The secrets to access the Ceph cluster.
 //   - volOptions: The volume options for the CephFS subvolume.
-//   - credentials: The credentials to access the Ceph cluster.
 //
 // Behavior:
 //   - If `IsFencingEnabled` is false, the function returns immediately without
@@ -1309,9 +1304,9 @@ func (cs *ControllerServer) removeUserIdMapping(
 // Returns an error if any step in the fencing process fails.
 func (cs *ControllerServer) fenceNode(
 	ctx context.Context,
-	nodeId string,
+	volumeId, nodeId string,
+	secrets map[string]string,
 	volOptions *store.VolumeOptions,
-	credentials *util.Credentials,
 ) error {
 	if nodeId == "" {
 		return errors.New("node ID cannot be empty")
@@ -1320,16 +1315,74 @@ func (cs *ControllerServer) fenceNode(
 		return nil
 	}
 
-	volClient := core.NewSubVolume(
-		volOptions.GetConnection(), &volOptions.SubVolume, volOptions.ClusterID,
-		cs.ClusterName, cs.SetMetadata,
-	)
+	cr, err := util.NewAdminCredentials(secrets)
+	if err != nil {
+		return fmt.Errorf("failed to create credentials from secrets: %w", err)
+	}
+	defer cr.DeleteCredentials()
+
+	conn := volOptions.GetConnection()
+	metadataKey := core.GetClientAddressKey(volumeId, nodeId)
+
 	isOutOfService, err := k8s.IsNodeOutOfService(nodeId)
 	if err != nil {
 		return fmt.Errorf("failed to check if node %s is out of service: %w", nodeId, err)
 	}
 
-	metadataKey := core.GetClientAddressKey(nodeId)
+	if volOptions.BackingSnapshot {
+		volOpt, _, sid, err := store.NewSnapshotOptionsFromID(ctx, volOptions.BackingSnapshotID, cr, secrets, "", true)
+		if err != nil {
+			return err
+		}
+		defer volOpt.Destroy()
+
+		snapClient := core.NewSnapshot(
+			conn, sid.FsSnapshotName, volOpt.ClusterID, cs.ClusterName, cs.SetMetadata, &volOpt.SubVolume,
+		)
+		if !isOutOfService {
+			err = snapClient.UnsetAllSnapshotMetadata([]string{metadataKey})
+			if err != nil && !errors.Is(err, core.ErrSubVolMetadataNotSupported) {
+				return fmt.Errorf("failed to remove metadata %s from subvolume snapshot %s: %w",
+					metadataKey, sid.FsSnapshotName, err)
+			}
+			log.DebugLog(ctx, "node %s is not out of service, removed metadata %s from subvolume snapshot %s if it",
+				"existed", nodeId, metadataKey, sid.FsSnapshotName)
+
+			return nil
+		}
+
+		metadata, err := snapClient.ListSnapshotMetadata()
+		if err != nil {
+			return fmt.Errorf("failed to list metadata %s for subvolume %s: %w",
+				metadataKey, volOptions.SubVolume.VolID, err)
+		}
+
+		clientAddress, exists := metadata[metadataKey]
+		if !exists {
+			// If the metadata doesn't exist, we do not need to add it to the blocklist
+			// as it does not contain any client address to block.
+			log.DebugLog(ctx, "metadata %s for subvolume snapshot %s doesn't exists, skipping unfencing for nodeId %s",
+				metadataKey, sid.FsSnapshotName, nodeId)
+
+			return nil
+		}
+
+		if clientAddress == "" {
+			return fmt.Errorf("client address metadata %s for subvolume snapshot %s is empty", metadataKey, sid.FsSnapshotName)
+		}
+
+		err = util.AddCephBlocklist(ctx, volOptions.Monitors, cr, clientAddress, false)
+		if err != nil {
+			return fmt.Errorf("failed to add client address to blocklist: %w", err)
+		}
+
+		return nil
+	}
+
+	volClient := core.NewSubVolume(
+		conn, &volOptions.SubVolume, volOptions.ClusterID,
+		cs.ClusterName, cs.SetMetadata,
+	)
 	if !isOutOfService {
 		// If the node is not tainted with `out-of-service`,
 		// we remove the client address metadata from the volume metadata.
@@ -1364,7 +1417,7 @@ func (cs *ControllerServer) fenceNode(
 		return fmt.Errorf("client address metadata %s for subvolume %s is empty", metadataKey, volOptions.SubVolume.VolID)
 	}
 
-	err = util.AddCephBlocklist(ctx, volOptions.Monitors, credentials, clientAddress, false)
+	err = util.AddCephBlocklist(ctx, volOptions.Monitors, cr, clientAddress, false)
 	if err != nil {
 		return fmt.Errorf("failed to add client address to blocklist: %w", err)
 	}
@@ -1376,9 +1429,10 @@ func (cs *ControllerServer) fenceNode(
 // allowing it to access the specified CephFS subvolume again.
 //
 // Parameters:
-//   - nodeId: The ID of the node to be unfenced.
+//   - volumeId: The volumeID of the CephFS subvolume.
+//   - nodeId: The ID of the node that may be unfenced.
+//   - secrets: The secrets to access the Ceph cluster.
 //   - volOptions: The volume options for the CephFS subvolume.
-//   - credentials: The credentials to access the Ceph cluster.
 //
 // Behavior:
 //   - If `IsFencingEnabled` is false, the function returns immediately without
@@ -1391,19 +1445,28 @@ func (cs *ControllerServer) fenceNode(
 // Returns an error if any step in the unfencing process fails.
 func (cs *ControllerServer) unfenceNode(
 	ctx context.Context,
-	nodeId string,
+	volumeId, nodeId string,
 	volOptions *store.VolumeOptions,
-	credentials *util.Credentials,
+	secrets map[string]string,
 ) error {
 	if !cs.Driver.IsFencingEnabled() {
 		return nil
+	}
+
+	credentials, err := util.NewAdminCredentials(secrets)
+	if err != nil {
+		return fmt.Errorf("failed to create credentials from secrets: %w", err)
+	}
+	defer credentials.DeleteCredentials()
+
+	if volOptions.BackingSnapshot {
 	}
 
 	volClient := core.NewSubVolume(
 		volOptions.GetConnection(), &volOptions.SubVolume, volOptions.ClusterID,
 		cs.ClusterName, cs.SetMetadata,
 	)
-	metadataKey := core.GetClientAddressKey(nodeId)
+	metadataKey := core.GetClientAddressKey(volumeId, nodeId)
 	metadata, err := volClient.ListMetadata()
 	if err != nil {
 		return fmt.Errorf("failed to list metadata %s for subvolume %s: %w",

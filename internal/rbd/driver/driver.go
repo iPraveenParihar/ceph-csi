@@ -164,7 +164,7 @@ func (r *Driver) Run(conf *util.Config) {
 			log.FatalLogMsg("%v", err.Error())
 		}
 		r.ns = NewNodeServer(r.cd, conf.Vtype, nodeLabels, topology, crushLocationMap)
-
+		r.ns.SetMetadata = conf.SetMetadata
 		var attr string
 		attr, err = rbd.GetKrbdSupportedFeatures()
 		if err != nil && !errors.Is(err, os.ErrNotExist) {

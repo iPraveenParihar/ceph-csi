@@ -7,7 +7,7 @@
 # Operating System, so generated binaries and versions of dependencies may be a
 # little different.
 #
-FROM quay.ceph.io/ceph-ci/ceph:wip-pkalever-rbd-group-snap-mirror
+FROM quay.ceph.io/ceph-ci/ceph:wip-rbd-cgsm-base
 
 ARG GOPATH=/go
 ARG GOROOT=/usr/local/go

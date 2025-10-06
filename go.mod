@@ -43,7 +43,7 @@ require (
 	k8s.io/utils v0.0.0-20241210054802-24370beab758
 )
 
-replace github.com/ceph/go-ceph => github.com/red-hat-storage/go-ceph v0.32.1-0.20250425091651-2164276cc9e5
+replace github.com/ceph/go-ceph => github.com/red-hat-storage/go-ceph v0.32.1-0.20251006122835-81e0726e7848
 
 require (
 	// sigs.k8s.io/controller-runtime wants this version, it gets replaced below

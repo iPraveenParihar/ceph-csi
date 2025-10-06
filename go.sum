@@ -603,8 +603,8 @@ github.com/prometheus/common v0.62.0 h1:xasJaQlnWAeyHdUBeGjXmutelfJHWMRr+Fg4QszZ
 github.com/prometheus/common v0.62.0/go.mod h1:vyBcEuLSvWos9B1+CyL7JZ2up+uFzXhkqml0W5zIY1I=
 github.com/prometheus/procfs v0.15.1 h1:YagwOFzUgYfKKHX6Dr+sHT7km/hxC76UB0learggepc=
 github.com/prometheus/procfs v0.15.1/go.mod h1:fB45yRUv8NstnjriLhBQLuOUt+WW4BsoGhij/e3PBqk=
-github.com/red-hat-storage/go-ceph v0.32.1-0.20250425091651-2164276cc9e5 h1:OZaxewnZ8Fu+taUkFl4Fl4VEMtDlVLDhShyPUObnNmk=
-github.com/red-hat-storage/go-ceph v0.32.1-0.20250425091651-2164276cc9e5/go.mod h1:V++4AyPoTN50AtoHAZQ63lN0galqGLFE1b7aS0gO1Es=
+github.com/red-hat-storage/go-ceph v0.32.1-0.20251006122835-81e0726e7848 h1:LJgdRRZLUwga7ZE5k8zKv6dWOoggZGPA6U8zg/TXeW0=
+github.com/red-hat-storage/go-ceph v0.32.1-0.20251006122835-81e0726e7848/go.mod h1:V++4AyPoTN50AtoHAZQ63lN0galqGLFE1b7aS0gO1Es=
 github.com/redis/go-redis/v9 v9.7.0 h1:HhLSs+B6O021gwzl+locl0zEDnyNkxMtf/Z3NNBMa9E=
 github.com/redis/go-redis/v9 v9.7.0/go.mod h1:f6zhXITC7JUJIlPEiBOTXxJgPLdZcA93GewI7inzyWw=
 github.com/rogpeppe/fastuuid v1.2.0/go.mod h1:jVj6XXZzXRy/MSR5jhDC/2q6DgLz+nrA6LYCDYWNEvQ=

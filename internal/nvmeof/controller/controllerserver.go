@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
@@ -43,7 +42,15 @@ type Server struct {
 
 	// A map storing all volumes with ongoing operations so that additional operations
 	// for that same volume (as defined by VolumeID/volume name) return an Aborted error
-	volumeLocks *util.VolumeLocks
+	volumeLocks *util.IDLocker
+
+	// hostLocks protects against concurrently adding hosts to, and removing hosts from
+	// the gateway during ControllerPublishVolume and ControllerUnpublishVolume.
+	hostLocks *util.IDLocker
+
+	// subsystemLocks prevents concurrent calls from deleting an "empty but not empty
+	// anymore" subsystem (and listeners).
+	subsystemLocks *util.IDLocker
 
 	// backendServer handles the RBD requests
 	backendServer *rbd.ControllerServer
@@ -52,8 +59,10 @@ type Server struct {
 // NewControllerServer initialize a controller server for nvmeof CSI driver.
 func NewControllerServer(d *csicommon.CSIDriver) (*Server, error) {
 	return &Server{
-		volumeLocks:   util.NewVolumeLocks(),
-		backendServer: rbddriver.NewControllerServer(d),
+		volumeLocks:    util.NewIDLocker(),
+		hostLocks:      util.NewIDLocker(),
+		subsystemLocks: util.NewIDLocker(),
+		backendServer:  rbddriver.NewControllerServer(d),
 	}, nil
 }
 
@@ -129,7 +138,7 @@ func (cs *Server) CreateVolume(
 	rbdPoolName := res.GetVolume().GetVolumeContext()["pool"]
 
 	// Step 2: Setup NVMe-oF resources
-	nvmeofData, err := createNVMeoFResources(ctx, req, rbdPoolName, rbdImageName)
+	nvmeofData, err := cs.createNVMeoFResources(ctx, req, rbdPoolName, rbdImageName)
 	if err != nil {
 		log.ErrorLog(ctx, "NVMe-oF resource setup failed for volumeID %s: %v", volumeID, err)
 
@@ -141,7 +150,7 @@ func (cs *Server) CreateVolume(
 			return
 		}
 
-		cleanupErr := cleanupNVMeoFResources(ctx, nvmeofData)
+		cleanupErr := cs.cleanupNVMeoFResources(ctx, nvmeofData)
 		if cleanupErr != nil {
 			log.ErrorLog(ctx, "failed to cleanup NVMe-oF resources for volume  %q: %v", volumeID, cleanupErr)
 		}
@@ -184,7 +193,7 @@ func (cs *Server) DeleteVolume(
 		log.DebugLog(ctx, "No NVMe-oF metadata found, skipping NVMe-oF cleanup: %v", err)
 	} else {
 		// Clean up NVMe-oF resources
-		if err := cleanupNVMeoFResources(ctx, nvmeofData); err != nil {
+		if err := cs.cleanupNVMeoFResources(ctx, nvmeofData); err != nil {
 			log.ErrorLog(ctx, "NVMe-oF cleanup failed (continuing with RBD deletion): %v", err)
 
 			return nil, status.Errorf(codes.Internal, "NVMe-oF cleanup failed: %v", err)
@@ -211,6 +220,12 @@ func (cs *Server) ControllerPublishVolume(
 	}
 	defer cs.volumeLocks.Release(volumeID)
 
+	nodeID := req.GetNodeId()
+	if acquired := cs.hostLocks.TryAcquire(nodeID); !acquired {
+		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, volumeID)
+	}
+	defer cs.hostLocks.Release(nodeID)
+
 	// Publish NVMe-oF resources
 	hostNqn, err := publishResources(ctx, req)
 	if err != nil {
@@ -235,11 +250,16 @@ func (cs *Server) ControllerUnpublishVolume(
 	}
 
 	volumeID := req.GetVolumeId()
-	nodeID := req.GetNodeId()
 	if acquired := cs.volumeLocks.TryAcquire(volumeID); !acquired {
 		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, volumeID)
 	}
 	defer cs.volumeLocks.Release(volumeID)
+
+	nodeID := req.GetNodeId()
+	if acquired := cs.hostLocks.TryAcquire(nodeID); !acquired {
+		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, volumeID)
+	}
+	defer cs.hostLocks.Release(nodeID)
 
 	// Since ControllerUnpublishVolume doesn't receive volume context,
 	// we need to retrieve it from the volume metadata stored during CreateVolume
@@ -415,7 +435,7 @@ func cleanupEmptySubsystem(
 
 // createNVMeoFResources sets up the NVMe-oF resources for the given RBD volume.
 // TODO - need to support multiple listeners.
-func createNVMeoFResources(
+func (cs *Server) createNVMeoFResources(
 	ctx context.Context,
 	req *csi.CreateVolumeRequest,
 	rbdPoolName,
@@ -461,6 +481,14 @@ func createNVMeoFResources(
 		}
 	}()
 
+	// TODO: replace util.VolumeOperationAlreadyExistsFmt
+	if acquired := cs.subsystemLocks.TryAcquire(nvmeofData.SubsystemNQN); !acquired {
+		log.ErrorLog(ctx, util.VolumeOperationAlreadyExistsFmt, nvmeofData.SubsystemNQN)
+
+		return nil, fmt.Errorf(util.VolumeOperationAlreadyExistsFmt, nvmeofData.SubsystemNQN)
+	}
+	defer cs.subsystemLocks.Release(nvmeofData.SubsystemNQN)
+
 	// Step 3: Ensure subsystem exists (and listener)
 	if err := ensureSubsystem(ctx, gateway, nvmeofData.SubsystemNQN, nvmeofData.ListenerInfo); err != nil {
 		return nil, fmt.Errorf("subsystem setup failed: %w", err)
@@ -488,7 +516,7 @@ func createNVMeoFResources(
 
 // cleanupNVMeoFResources cleans up NVMe-oF resources associated with the volume.
 // This includes removing the host, listener, namespace, and potentially the subsystem.
-func cleanupNVMeoFResources(
+func (cs *Server) cleanupNVMeoFResources(
 	ctx context.Context,
 	nvmeofData *nvmeof.NVMeoFVolumeData,
 ) error {
@@ -510,6 +538,14 @@ func cleanupNVMeoFResources(
 	// there is no relevant to continue , will make it simple ?
 	// instead of check in the std error if "not found"..
 
+	// TODO: replace util.VolumeOperationAlreadyExistsFmt
+	if acquired := cs.subsystemLocks.TryAcquire(nvmeofData.SubsystemNQN); !acquired {
+		log.ErrorLog(ctx, util.VolumeOperationAlreadyExistsFmt, nvmeofData.SubsystemNQN)
+
+		return fmt.Errorf(util.VolumeOperationAlreadyExistsFmt, nvmeofData.SubsystemNQN)
+	}
+	defer cs.subsystemLocks.Release(nvmeofData.SubsystemNQN)
+
 	// Step 2: Delete namespace
 	if err := gateway.DeleteNamespace(ctx, nvmeofData.SubsystemNQN, nvmeofData.NamespaceID); err != nil {
 		return fmt.Errorf("failed to delete namespace %d for subsystem %s: %w",
@@ -530,7 +566,7 @@ func publishResources(ctx context.Context,
 	req *csi.ControllerPublishVolumeRequest,
 ) (string, error) {
 	nodeID := req.GetNodeId()
-	hostNQN, err := extractHostNQNFromNodeID(nodeID)
+	hostNQN, err := getHostNQNFromNodeID(nodeID)
 	if err != nil {
 		return "", status.Errorf(codes.InvalidArgument, "invalid nodeID format: %v", err)
 	}
@@ -573,7 +609,7 @@ func publishResources(ctx context.Context,
 // unpublishResources removes the host from the NVMe-oF subsystem.
 func unpublishResources(ctx context.Context, data *nvmeof.NVMeoFVolumeData, nodeID string) error {
 	// Extract host NQN from nodeID
-	hostNQN, err := extractHostNQNFromNodeID(nodeID)
+	hostNQN, err := getHostNQNFromNodeID(nodeID)
 	if err != nil {
 		return fmt.Errorf("invalid nodeID format: %w", err)
 	}
@@ -620,16 +656,18 @@ func unpublishResources(ctx context.Context, data *nvmeof.NVMeoFVolumeData, node
 	return nil
 }
 
-// extractHostNQNFromNodeID extracts the host NQN from the node ID.
-func extractHostNQNFromNodeID(nodeID string) (string, error) {
-	// the nodeID has the pattern: <hostname>::<nqn>
-	// TODO: maybe change this separator to rare one.
-	parts := strings.Split(nodeID, "::")
-	if len(parts) != 2 {
+// getHostNQNFromNodeID constructs the host NQN from the nodeID. just concatenate the prefix
+// with the nodeID. the hostnqn format is nqn.<YOUR-DATE>.<YOUR-REVERSE-DOMAIN>:<user-part>,
+// we use the default prefix (nqn.2014-08.org.nvmexpress:)
+// and append the nodeID as user-part. Also there is no need to add an UUID as user-part,
+// as the nodeID is already unique.
+func getHostNQNFromNodeID(nodeID string) (string, error) {
+	const prefix = "nqn.2014-08.org.nvmexpress:"
+	if nodeID == "" {
 		return "", fmt.Errorf("invalid nodeID format: %s", nodeID)
 	}
 
-	return parts[1], nil
+	return prefix + nodeID, nil
 }
 
 // VolumeContext metadata keys.

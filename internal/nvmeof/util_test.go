@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Ceph-CSI Authors.
+Copyright 2025 The Ceph-CSI Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,37 +14,29 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cephfs
+package nvmeof
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/ceph/ceph-csi/internal/util"
 )
 
-func TestSetupCSIAddonsServer(t *testing.T) {
+func TestFormatUUID(t *testing.T) {
 	t.Parallel()
-
-	// endpoint in a temporary directory
-	tmpDir := t.TempDir()
-	endpoint := "unix://" + tmpDir + "/csi-addons.sock"
-
-	config := &util.Config{
-		CSIAddonsEndpoint: endpoint,
+	tests := []struct {
+		in  string
+		out string
+	}{
+		{"438cb4a8ae90477485677ea1414cd3ac", "438cb4a8-ae90-4774-8567-7ea1414cd3ac"},
+		{"4-3-8-c--b4a8ae90477485677ea1414cd3ac", "438cb4a8-ae90-4774-8567-7ea1414cd3ac"},
+		{"---438cb4a8ae90477485677ea1414cd3ac---", "438cb4a8-ae90-4774-8567-7ea1414cd3ac"},
+		{"invalid", "invalid"},
+		{"", ""},
 	}
 
-	drv := &cephfsDriver{}
-	err := drv.setupCSIAddonsServer(config)
-	require.NoError(t, err)
-	require.NotNil(t, drv.cas)
-
-	// verify the socket file has been created
-	_, err = os.Stat(tmpDir + "/csi-addons.sock")
-	require.NoError(t, err)
-
-	// stop the gRPC server
-	drv.cas.Stop()
+	for _, test := range tests {
+		out := formatUUID(test.in)
+		require.Equal(t, test.out, out)
+	}
 }

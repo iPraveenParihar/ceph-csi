@@ -82,6 +82,13 @@ linters:
     # TODO enable linters added in golangci-lint 1.60
     - iface
     - recvcheck
+    # TODO enable linters added in 2.5.0
+    - godoclint
+    - embeddedstructfieldcheck
+    - wsl_v5
+    - iotamixing
+    - noctx
+    - noinlineerr
   settings:
     cyclop:
       max-complexity: 20
@@ -141,12 +148,18 @@ formatters:
     - gofmt
     - gofumpt
     - goimports
+    - gci
   settings:
     gofmt:
       simplify: true
     goimports:
       local-prefixes:
         - github.com/ceph/ceph-csi
+    gci:
+      sections:
+        - standard
+        - default
+        - localmodule
   exclusions:
     generated: lax
     paths:

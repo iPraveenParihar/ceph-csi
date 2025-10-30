@@ -23,18 +23,18 @@ import (
 	"fmt"
 	"strconv"
 
+	librbd "github.com/ceph/go-ceph/rbd"
+	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/kubernetes-csi/csi-lib-utils/protosanitizer"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	csicommon "github.com/ceph/ceph-csi/internal/csi-common"
 	rbderrors "github.com/ceph/ceph-csi/internal/rbd/errors"
 	"github.com/ceph/ceph-csi/internal/rbd/types"
 	"github.com/ceph/ceph-csi/internal/util"
 	"github.com/ceph/ceph-csi/internal/util/k8s"
 	"github.com/ceph/ceph-csi/internal/util/log"
-
-	librbd "github.com/ceph/go-ceph/rbd"
-	"github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/kubernetes-csi/csi-lib-utils/protosanitizer"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 const (

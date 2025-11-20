@@ -37,8 +37,8 @@ ifneq ($(GITHUB_ACTION),)
     SECURITY_OPT ?= --security-opt seccomp=unconfined
 endif
 
-CSI_IMAGE_NAME=$(if $(ENV_CSI_IMAGE_NAME),$(ENV_CSI_IMAGE_NAME),quay.io/cephcsi/cephcsi)
-CSI_IMAGE_VERSION=$(shell . $(CURDIR)/build.env ; echo $${CSI_IMAGE_VERSION})
+CSI_IMAGE_NAME=$(if $(ENV_CSI_IMAGE_NAME),$(ENV_CSI_IMAGE_NAME),ghcr.io/ipraveenparihar/cephcsi)
+CSI_IMAGE_VERSION="block-usage-v4"
 CSI_IMAGE=$(CSI_IMAGE_NAME):$(CSI_IMAGE_VERSION)
 
 # Pass USE_PULLED_IMAGE=yes to skip building a new :test or :devel image.

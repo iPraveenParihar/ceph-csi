@@ -24,6 +24,17 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/ceph/ceph-csi/pkg/util/kernel"
+
+	csicommon "github.com/ceph/ceph-csi/internal/csi-common"
+	rbderrors "github.com/ceph/ceph-csi/internal/rbd/errors"
+	"github.com/ceph/ceph-csi/internal/util"
+	"github.com/ceph/ceph-csi/internal/util/file"
+	"github.com/ceph/ceph-csi/internal/util/fscrypt"
+	"github.com/ceph/ceph-csi/internal/util/k8s"
+	"github.com/ceph/ceph-csi/internal/util/log"
 
 	librbd "github.com/ceph/go-ceph/rbd"
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -32,14 +43,6 @@ import (
 	"k8s.io/kubernetes/pkg/volume"
 	mount "k8s.io/mount-utils"
 	utilexec "k8s.io/utils/exec"
-
-	csicommon "github.com/ceph/ceph-csi/internal/csi-common"
-	rbderrors "github.com/ceph/ceph-csi/internal/rbd/errors"
-	"github.com/ceph/ceph-csi/internal/util"
-	"github.com/ceph/ceph-csi/internal/util/file"
-	"github.com/ceph/ceph-csi/internal/util/fscrypt"
-	"github.com/ceph/ceph-csi/internal/util/log"
-	"github.com/ceph/ceph-csi/pkg/util/kernel"
 )
 
 // NodeServer struct of ceph rbd driver with supported methods of CSI
@@ -1486,6 +1489,12 @@ func (ns *NodeServer) NodeGetVolumeStats(
 	req *csi.NodeGetVolumeStatsRequest,
 ) (*csi.NodeGetVolumeStatsResponse, error) {
 	var err error
+	volumeId := req.GetVolumeId()
+	if volumeId == "" {
+		err = fmt.Errorf("volume ID %v is empty", volumeId)
+
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 	targetPath := req.GetVolumePath()
 	if targetPath == "" {
 		err = fmt.Errorf("targetpath %v is empty", targetPath)
@@ -1512,7 +1521,7 @@ func (ns *NodeServer) NodeGetVolumeStats(
 	if stat.Mode().IsDir() {
 		return csicommon.FilesystemNodeGetVolumeStats(ctx, ns.Mounter, targetPath, true)
 	} else if (stat.Mode() & os.ModeDevice) == os.ModeDevice {
-		return blockNodeGetVolumeStats(ctx, targetPath)
+		return blockNodeGetVolumeStats(ctx, targetPath, volumeId)
 	}
 
 	return nil, fmt.Errorf("targetpath %q is not a block device", targetPath)
@@ -1524,7 +1533,7 @@ func (ns *NodeServer) NodeGetVolumeStats(
 // connect to the Ceph cluster.
 //
 // TODO: https://github.com/container-storage-interface/spec/issues/371#issuecomment-756834471
-func blockNodeGetVolumeStats(ctx context.Context, targetPath string) (*csi.NodeGetVolumeStatsResponse, error) {
+func blockNodeGetVolumeStats(ctx context.Context, targetPath, volumeId string) (*csi.NodeGetVolumeStatsResponse, error) {
 	mp := volume.NewMetricsBlock(targetPath)
 	m, err := mp.GetMetrics()
 	if err != nil {
@@ -1534,11 +1543,18 @@ func blockNodeGetVolumeStats(ctx context.Context, targetPath string) (*csi.NodeG
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
+	usedBytes, err := getUsageSize(ctx, targetPath, volumeId)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get used size for volume %s: %v",
+			volumeId, err)
+	}
+
 	return &csi.NodeGetVolumeStatsResponse{
 		Usage: []*csi.VolumeUsage{
 			{
 				Total: m.Capacity.Value(),
 				Unit:  csi.VolumeUsage_BYTES,
+				Used:  usedBytes,
 			},
 		},
 		VolumeCondition: &csi.VolumeCondition{
@@ -1546,6 +1562,79 @@ func blockNodeGetVolumeStats(ctx context.Context, targetPath string) (*csi.NodeG
 			Message:  "volume is in a healthy condition",
 		},
 	}, nil
+}
+
+func getUsageSize(ctx context.Context, devicePath string, volumeId string) (int64, error) {
+	var (
+		secrets         map[string]string
+		secretName      string
+		secretNamespace string
+		err             error
+	)
+	// TODO: need NodeStatsSecretRef?
+	secretName, secretNamespace, err = util.GetControllerPublishSecretRef(volumeId, util.RBDType)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get node volume stats secret ref: %w", err)
+	}
+	secrets, err = k8s.GetSecret(secretName, secretNamespace)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get node volume stats secret from k8s: %w", err)
+	}
+
+	credentials, err := util.NewAdminCredentials(secrets)
+	if err != nil {
+		return 0, status.Errorf(codes.Internal, "failed to create credentials from secrets: %v", err)
+	}
+	defer credentials.DeleteCredentials()
+
+	rv, err := GenVolFromVolID(ctx, volumeId, credentials, secrets)
+	if err != nil {
+		return 0, status.Errorf(codes.Internal, "failed to generate volume from volume ID %s: %v",
+			volumeId, err)
+	}
+	defer rv.Destroy(ctx)
+
+	img, err := rv.open()
+	if err != nil {
+		return 0, fmt.Errorf("failed to open rbd image %s: %w", rv.String(), err)
+	}
+	defer img.Close()
+
+	imgSize, err := getDeviceSize(ctx, devicePath)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get device size for %s: %w", devicePath, err)
+	}
+
+	var usage uint64
+	type diResult struct {
+		offset uint64
+		length uint64
+	}
+	calls := []diResult{}
+
+	start := time.Now()
+	err = img.DiffIterate(
+		librbd.DiffIterateConfig{
+			Offset:        0,
+			Length:        imgSize,
+			IncludeParent: librbd.IncludeParent,
+			WholeObject:   librbd.DisableWholeObject, // RBD DU uses WHOLEOBJECT by default?
+			Callback: func(o, l uint64, _ int, _ interface{}) int {
+				calls = append(calls, diResult{offset: o, length: l})
+				return 0
+			},
+		})
+	if err != nil {
+		return 0, fmt.Errorf("failed to iterate over rbd image %s: %w", rv.String(), err)
+	}
+
+	for _, call := range calls {
+		usage += call.length
+	}
+	end := time.Now()
+	log.DebugLog(ctx, "DiffIterate on image size: %d took %v", imgSize, end.Sub(start))
+
+	return int64(usage), nil
 }
 
 // getDeviceSize gets the block device size.

@@ -267,3 +267,15 @@ func GetCephFSControllerPublishSecretRef(pathToConfig, clusterID string) (string
 
 	return secretRef.Name, secretRef.Namespace, nil
 }
+
+
+func GetRBDNodeVolumeStatSecretRef(pathToConfig, clusterID string) (string, string, error) {
+	cluster, err := readClusterInfo(pathToConfig, clusterID)
+	if err != nil {
+		return "", "", err
+	}
+
+	secretRef := cluster.RBD.NodeVolumeStatsSecretRef
+
+	return secretRef.Name, secretRef.Namespace, nil
+}

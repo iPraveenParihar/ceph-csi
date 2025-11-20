@@ -399,3 +399,21 @@ func getControllerPublishSecretRef(clusterId, driverType string) (string, string
 
 	return secretName, secretNamespace, err
 }
+
+func GetNodeStatsVolumeSecretRef(volumeId string) (string, string, error) {
+	var (
+		secretName string
+		secretNamespace string
+		vi  CSIIdentifier
+		err error
+	)
+
+	err = vi.DecomposeCSIID(volumeId)
+	if err != nil {
+		return secretName, secretNamespace, fmt.Errorf("failed to decode volume ID (%s): %w", volumeId, err)
+	}
+
+	secretName, secretNamespace, err = GetRBDNodeVolumeStatSecretRef(CsiConfigFile, vi.ClusterID)
+
+	return secretName, secretNamespace, err
+}

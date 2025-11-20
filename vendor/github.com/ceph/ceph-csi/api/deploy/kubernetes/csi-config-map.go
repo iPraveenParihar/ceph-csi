@@ -60,6 +60,8 @@ type RBD struct {
 	// ControllerPublishSecretRef contains the secret reference for controller
 	// publish operations.
 	ControllerPublishSecretRef corev1.SecretReference `json:"controllerPublishSecretRef"`
+	// NodeVolumeStats contains the secret reference for node volume stats
+	NodeVolumeStatsSecretRef corev1.SecretReference `json:"nodeVolumeStatsSecretRef"`
 }
 
 type NFS struct {

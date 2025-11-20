@@ -80,6 +80,11 @@ type FSQuiesceClient interface {
 	) (*admin.QuiesceInfo, error)
 }
 
+type FSQuiesceClientMap map[string]FSQuiesceClient
+
+// EmptyFSQuiesceClientMap is used when no filesystem quiesce operations are needed.
+var EmptyFSQuiesceClientMap = FSQuiesceClientMap{}
+
 type Volume struct {
 	VolumeID  string
 	ClusterID string

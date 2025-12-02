@@ -31,7 +31,8 @@ RUN true \
      && ( dnf config-manager --disable tcmu-runner,tcmu-runner-source,tcmu-runner-noarch,ceph-iscsi,ganesha || true ) \
      && true
 
-RUN source /build.env \
+RUN set -x \
+    && source /build.env \
     && \
     ( test -n "${GOARCH}" && exit 0; echo -e "\n\nMissing GOARCH argument for building image, install Golang or run: make containerized-test GOARCH=amd64\n\n"; exit 1 ) \
     && dnf -y install \

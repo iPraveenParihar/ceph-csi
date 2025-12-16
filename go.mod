@@ -11,7 +11,7 @@ require (
 	github.com/IBM/keyprotect-go-client v0.15.1
 	github.com/avast/retry-go/v4 v4.7.0
 	github.com/aws/aws-sdk-go v1.55.8
-	github.com/aws/aws-sdk-go-v2/service/sts v1.41.1
+	github.com/aws/aws-sdk-go-v2/service/sts v1.41.4
 	github.com/ceph/ceph-csi/api v0.0.0-00010101000000-000000000000
 	github.com/ceph/ceph-nvmeof/lib/go/nvmeof v0.0.0-20251105130956-2cc225b176fc
 	github.com/ceph/go-ceph v0.36.0
@@ -30,9 +30,9 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/automaxprocs v1.6.0
-	golang.org/x/crypto v0.45.0
+	golang.org/x/crypto v0.46.0
 	golang.org/x/net v0.47.0
-	golang.org/x/sys v0.38.0
+	golang.org/x/sys v0.39.0
 	google.golang.org/grpc v1.77.0
 	google.golang.org/protobuf v1.36.10
 	k8s.io/api v0.34.2
@@ -73,12 +73,12 @@ require (
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.6.0 // indirect
 	github.com/ansel1/merry v1.8.1 // indirect
 	github.com/ansel1/merry/v2 v2.2.2 // indirect
-	github.com/aws/aws-sdk-go-v2 v1.40.0 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.14 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.14 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.3 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.14 // indirect
-	github.com/aws/smithy-go v1.23.2 // indirect
+	github.com/aws/aws-sdk-go-v2 v1.41.0 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.16 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.16 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.4 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.16 // indirect
+	github.com/aws/smithy-go v1.24.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
@@ -149,9 +149,9 @@ require (
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/oauth2 v0.32.0 // indirect
-	golang.org/x/sync v0.18.0 // indirect
-	golang.org/x/term v0.37.0 // indirect
-	golang.org/x/text v0.31.0 // indirect
+	golang.org/x/sync v0.19.0 // indirect
+	golang.org/x/term v0.38.0 // indirect
+	golang.org/x/text v0.32.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.4.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251022142026-3a174f9686a8 // indirect

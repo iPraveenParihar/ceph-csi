@@ -31,7 +31,8 @@ RUN true \
      && ( dnf config-manager --disable tcmu-runner,tcmu-runner-source,tcmu-runner-noarch,ceph-iscsi,ganesha || true ) \
      && true
 
-RUN source /build.env \
+RUN set -x \
+    && source /build.env \
     && \
     ( test -n "${GOARCH}" && exit 0; echo -e "\n\nMissing GOARCH argument for building image, install Golang or run: make containerized-test GOARCH=amd64\n\n"; exit 1 ) \
     && dnf -y install \
@@ -56,7 +57,7 @@ RUN source /build.env \
     && dnf -y clean all \
     && gem install mdl \
     && mkdir -p ${GOROOT} \
-    && curl https://storage.googleapis.com/golang/go${GOLANG_VERSION}.linux-${GOARCH}.tar.gz  \
+    && curl -L https://go.dev/dl/go${GOLANG_VERSION}.linux-${GOARCH}.tar.gz  \
        | tar xzf - -C ${GOROOT} --strip-components=1 \
     && go version \
     && curl -sf "https://raw.githubusercontent.com/golangci/golangci-lint/${GOLANGCI_VERSION}/install.sh" \

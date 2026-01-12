@@ -11,7 +11,7 @@ require (
 	github.com/IBM/keyprotect-go-client v0.15.1
 	github.com/avast/retry-go/v4 v4.7.0
 	github.com/aws/aws-sdk-go v1.55.8
-	github.com/aws/aws-sdk-go-v2/service/sts v1.41.4
+	github.com/aws/aws-sdk-go-v2/service/sts v1.41.5
 	github.com/ceph/ceph-csi/api v0.0.0-00010101000000-000000000000
 	github.com/ceph/ceph-nvmeof/lib/go/nvmeof v0.0.0-20251105130956-2cc225b176fc
 	github.com/ceph/go-ceph v0.36.0
@@ -44,7 +44,7 @@ require (
 	k8s.io/utils v0.0.0-20250604170112-4c0f3b243397
 )
 
-replace github.com/ceph/go-ceph => github.com/red-hat-storage/go-ceph v0.32.1-0.20250929105257-a56af36bf742
+replace github.com/ceph/go-ceph => github.com/red-hat-storage/go-ceph v0.32.1-0.20260109062642-357605f36918
 
 require (
 	// sigs.k8s.io/controller-runtime wants this version, it gets replaced below

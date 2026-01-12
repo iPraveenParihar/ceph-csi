@@ -162,7 +162,7 @@ github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding
 # github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.16
 ## explicit; go 1.23
 github.com/aws/aws-sdk-go-v2/service/internal/presigned-url
-# github.com/aws/aws-sdk-go-v2/service/sts v1.41.4
+# github.com/aws/aws-sdk-go-v2/service/sts v1.41.5
 ## explicit; go 1.23
 github.com/aws/aws-sdk-go-v2/service/sts
 github.com/aws/aws-sdk-go-v2/service/sts/internal/endpoints
@@ -209,12 +209,13 @@ github.com/ceph/ceph-csi/api/deploy/ocp
 # github.com/ceph/ceph-nvmeof/lib/go/nvmeof v0.0.0-20251105130956-2cc225b176fc
 ## explicit; go 1.24.4
 github.com/ceph/ceph-nvmeof/lib/go/nvmeof
-# github.com/ceph/go-ceph v0.36.0 => github.com/red-hat-storage/go-ceph v0.32.1-0.20250929105257-a56af36bf742
-## explicit; go 1.23.0
+# github.com/ceph/go-ceph v0.36.0 => github.com/red-hat-storage/go-ceph v0.32.1-0.20260109062642-357605f36918
+## explicit; go 1.24.0
 github.com/ceph/go-ceph/cephfs
 github.com/ceph/go-ceph/cephfs/admin
 github.com/ceph/go-ceph/common/admin/manager
 github.com/ceph/go-ceph/common/admin/nfs
+github.com/ceph/go-ceph/common/admin/osd
 github.com/ceph/go-ceph/common/commands
 github.com/ceph/go-ceph/internal/callbacks
 github.com/ceph/go-ceph/internal/commands
@@ -1273,5 +1274,5 @@ sigs.k8s.io/structured-merge-diff/v6/value
 ## explicit; go 1.22
 sigs.k8s.io/yaml
 # github.com/ceph/ceph-csi/api => ./api
-# github.com/ceph/go-ceph => github.com/red-hat-storage/go-ceph v0.32.1-0.20250929105257-a56af36bf742
+# github.com/ceph/go-ceph => github.com/red-hat-storage/go-ceph v0.32.1-0.20260109062642-357605f36918
 # k8s.io/client-go => k8s.io/client-go v0.34.2

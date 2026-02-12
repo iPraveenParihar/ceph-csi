@@ -54,10 +54,12 @@ Status: **GA**
 Ceph CSI drivers are currently developed and tested **exclusively** in Kubernetes
 environments.
 
-| Ceph CSI Version | Container Orchestrator Name | Version Tested     |
-| -----------------| --------------------------- | -------------------|
-| v3.16.0          | Kubernetes                  | v1.32, v1.33, v1.34|
-| v3.15.0          | Kubernetes                  | v1.31, v1.32, v1.33|
+| Ceph CSI Version | Container Orchestrator Name | Version Tested      |
+| -----------------| --------------------------- | ------------------- |
+| devel (v3.17.0)  | Kubernetes                  | v1.33, v1.34, v1.35 |
+| v3.16.1          | Kubernetes                  | v1.32, v1.33, v1.34 |
+| v3.16.0          | Kubernetes                  | v1.32, v1.33, v1.34 |
+| v3.15.0          | Kubernetes                  | v1.31, v1.32, v1.33 |
 
 There is work in progress to make this CO-independent and thus
 support other orchestration environments (Nomad, Mesos..etc).
@@ -114,6 +116,7 @@ for its support details.
 |        | Creating and deleting snapshot                            | Alpha          | >= v3.7.0          | >= v1.1.0        | Pacific (>=v16.2.0)  | >= v1.17.0         |
 |        | Provision volume from snapshot                            | Alpha          | >= v3.7.0          | >= v1.1.0        | Pacific (>=v16.2.0)  | >= v1.17.0         |
 |        | Provision volume from another volume                      | Alpha          | >= v3.7.0          | >= v1.1.0        | Pacific (>=v16.2.0)  | >= v1.16.0         |
+|        | Modify volume parameters with ControllerModifyVolume      | Alpha          | >= v3.17.0         | >= v1.12.0       | Pacific (>=v16.2.0)  | >= v1.34.0         |
 
 `NOTE`: The `Alpha` status reflects possible non-backward
 compatible changes in the future, and is thus not recommended
@@ -129,6 +132,7 @@ in the Kubernetes documentation.
 | Ceph CSI Release/Branch | Container image name         | Image Tag |
 | ----------------------- | ---------------------------- | --------- |
 | devel (Branch)          | quay.io/cephcsi/cephcsi      | canary    |
+| v3.16.1 (Release)       | quay.io/cephcsi/cephcsi      | v3.16.1   |
 | v3.16.0 (Release)       | quay.io/cephcsi/cephcsi      | v3.16.0   |
 | v3.15.1 (Release)       | quay.io/cephcsi/cephcsi      | v3.15.1   |
 | v3.15.0 (Release)       | quay.io/cephcsi/cephcsi      | v3.15.0   |

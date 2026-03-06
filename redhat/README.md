@@ -70,36 +70,7 @@ OpenShift CI (Prow) is used for testing the changes that land in this GitHub
 repository. The configuration of the jobs can be found in the [OpenShift
 Release repository][ocp-release].
 
-### Container Images
-
-Images that have been built from a PR that was merged will get automatically
-pushed into [the Qoay.io registry][quay-ceph-csi]. The configuration for the
-mirroring job is part of the [OpenShift Release
-repository][ocp-release-mirror].
-
-When a new release is planned, the mirroring will need to have the new branch
-and tags listed as well.
-
-Consumption of these images does not require any permissions, the images can be
-pulled with podman like:
-
-```
-podman pull quay.io/ocs-dev/ceph-csi:latest
-```
-
-### Bugzilla Plugin
-
-PRs that need a Bugzilla reference are handled by the Bugzilla Plugin which
-runs as part of Prow. The configuration gates the requirement on BZs to be
-linked, before the tests will pass and the PR can be merged. Once a branch is
-added to the GitHub repository, [the configuration][bz-config] needs adaption
-for the new branch as well.
-
-[upstream-ceph-csi]: https://github.com/ceph/ceph-csi
 [sync-pr]: https://github.com/red-hat-storage/ceph-csi/compare/devel...ceph:devel?template=redhat-sync.md
 [backport-pr]: https://github.com/red-hat-storage/ceph-csi/compare/release-4.9...devel?template=redhat-backport.md
 [ds-only-pr]: https://github.com/red-hat-storage/ceph-csi/compare/devel...ceph:devel?template=redhat-downstream-only.md
-[ocp-release]: https://github.com/openshift/release/tree/master/ci-operator/config/red-hat-storage/ceph-csi
-[ocp-release-mirror]: https://github.com/openshift/release/tree/master/core-services/image-mirroring/ceph-csi
-[quay-ceph-csi]: https://quay.io/repository/ocs-dev/ceph-csi?tab=tags
-[bz-config]: https://github.com/openshift/release/blob/master/core-services/prow/02_config/red-hat-storage/ceph-csi/_pluginconfig.yaml
+[ocp-release]: https://github.com/openshift/release/tree/master/ci-operator/config/red-hat-storage

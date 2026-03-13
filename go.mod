@@ -31,14 +31,14 @@ require (
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/automaxprocs v1.6.0
 	golang.org/x/crypto v0.48.0
-	golang.org/x/net v0.50.0
-	golang.org/x/sys v0.41.0
+	golang.org/x/net v0.51.0
+	golang.org/x/sys v0.42.0
 	google.golang.org/grpc v1.79.1
 	google.golang.org/protobuf v1.36.11
 	k8s.io/api v0.35.1
 	k8s.io/apimachinery v0.35.1
 	k8s.io/cloud-provider v0.35.1
-	k8s.io/klog/v2 v2.130.1
+	k8s.io/klog/v2 v2.140.0
 	k8s.io/kubernetes v1.35.2
 	k8s.io/mount-utils v0.35.1
 	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4
@@ -47,7 +47,7 @@ require (
 require (
 	// sigs.k8s.io/controller-runtime wants this version, it gets replaced below
 	k8s.io/client-go v12.0.0+incompatible
-	sigs.k8s.io/controller-runtime v0.23.1
+	sigs.k8s.io/controller-runtime v0.23.3
 )
 
 replace k8s.io/client-go => k8s.io/client-go v0.35.1

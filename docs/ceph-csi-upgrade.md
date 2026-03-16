@@ -104,15 +104,15 @@ compatibility support and without prior notice.
 For example, upgrading from 3.13 to 3.16 is not recommended.
 
 **Refer to the Breaking Changes Section in the
-[release notes](https://github.com/ceph/ceph-csi/releases/tag/v3.16.1) before
+[release notes](https://github.com/ceph/ceph-csi/releases/tag/v3.16.2) before
 proceeding further.**
 
-git checkout v3.16.1 tag
+git checkout v3.16.2 tag
 
 ```bash
 git clone https://github.com/ceph/ceph-csi.git
 cd ./ceph-csi
-git checkout v3.16.1
+git checkout v3.16.2
 ```
 
 ```console
@@ -301,6 +301,11 @@ service/csi-metrics-rbdplugin configured
 we have successfully upgraded RBD csi from v3.15 to v3.16
 
 ### Upgrading NFS
+
+> **Note:** Only for upgrade from v3.16 to v3.17, old NFS csidriver
+object will need to be deleted and created again since
+the `spec.attachRequired` field is being updated to `true` in
+v3.17 release. Refer to v3.17 release notes for more details.
 
 Upgrading nfs csi includes upgrade of nfs driver and as well as
 kubernetes sidecar containers and also the permissions required for the

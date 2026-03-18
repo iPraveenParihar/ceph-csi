@@ -33,7 +33,6 @@ RUN source /build.env \
 	make \
 	gcc \
 	findutils \
-	awk \
 	librados-devel \
         libcephfs-devel \
 	librbd-devel \

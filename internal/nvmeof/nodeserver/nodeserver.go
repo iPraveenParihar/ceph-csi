@@ -32,6 +32,7 @@ import (
 
 	csicommon "github.com/ceph/ceph-csi/internal/csi-common"
 	"github.com/ceph/ceph-csi/internal/nvmeof"
+	nvmeutil "github.com/ceph/ceph-csi/internal/nvmeof/util"
 	"github.com/ceph/ceph-csi/internal/util"
 	"github.com/ceph/ceph-csi/internal/util/log"
 )
@@ -211,6 +212,15 @@ func (ns *NodeServer) NodePublishVolume(
 		return nil, err
 	}
 
+	// Validate that the pod's service account is allowed to mount this volume
+	err = util.ValidateServiceAccountRestriction(ctx,
+		req.GetPublishContext()[util.PublishContextServiceAccount],
+		req.GetVolumeContext()[util.VolumeContextServiceAccountKey],
+		req.GetVolumeId())
+	if err != nil {
+		return nil, status.Error(codes.PermissionDenied, err.Error())
+	}
+
 	targetPath := req.GetTargetPath()
 	stagingPath := req.GetStagingTargetPath()
 	volID := req.GetVolumeId()
@@ -317,6 +327,8 @@ func (ns *NodeServer) NodeUnstageVolume(
 
 	stagingTargetPath := getStagingTargetPath(req)
 
+	devPath := getDeviceFromStagingPath(ctx, stagingTargetPath)
+
 	isMnt, err := ns.Mounter.IsMountPoint(stagingTargetPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -348,6 +360,20 @@ func (ns *NodeServer) NodeUnstageVolume(
 		}
 	}
 	log.DebugLog(ctx, "successfully removed staging path (%s)", stagingTargetPath)
+
+	// Disconnect controllers if this was the last mounted namespace on each controller.
+	// Non-fatal - a failed disconnect just means the connection lingers until the
+	// kernel's ctrl_loss_tmo expires or the next reconnect cycle.
+	if devPath != "" {
+		mountedDevices, err := getNVMeMountedDevices(ctx)
+		if err != nil {
+			log.WarningLog(ctx, "failed to get mounted devices: %v (skipping disconnect)", err)
+		} else {
+			if err := ns.initiator.DisconnectIfLastMount(ctx, devPath, mountedDevices); err != nil {
+				log.WarningLog(ctx, "failed to disconnect controller for device %s: %v", devPath, err)
+			}
+		}
+	}
 
 	return &csi.NodeUnstageVolumeResponse{}, nil
 }
@@ -385,18 +411,17 @@ func (ns *NodeServer) NodeExpandVolume(
 	mountPath := volumePath + "/" + volumeID
 
 	// Find device from mount (no metadata needed!)
-	devicePath, err := ns.getDeviceFromMount(ctx, mountPath)
-	if err != nil {
-		log.ErrorLog(ctx, "failed to find device for mount %s: %v", mountPath, err)
+	devicePath := getDeviceFromStagingPath(ctx, mountPath)
+	if devicePath == "" {
+		log.ErrorLog(ctx, "failed to find device for mount %s", mountPath)
 
-		return nil, status.Errorf(codes.Internal, "failed to find device: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to find device for mount %s", mountPath)
 	}
 
 	log.DebugLog(ctx, "nvmeof: resizing filesystem on device %s at mount path %s", devicePath, mountPath)
 
 	resizer := mount.NewResizeFs(utilexec.New())
-	var ok bool
-	ok, err = resizer.Resize(devicePath, mountPath)
+	ok, err := resizer.Resize(devicePath, mountPath)
 	if !ok {
 		return nil, status.Errorf(codes.Internal,
 			"nvmeof: resize failed on path %s, error: %v", req.GetVolumePath(), err)
@@ -467,6 +492,10 @@ func (ns *NodeServer) stageTransaction(
 	return transaction, nil
 }
 
+// undoStagingTransaction rolls back a staging transaction based on the state of the transaction.
+// It attempts to unmount the staging path if it was mounted,
+// remove the staging path if it was created, and disconnect the NVMe device if it was connected
+// and it was the last mount for that device.
 func (ns *NodeServer) undoStagingTransaction(
 	ctx context.Context,
 	req *csi.NodeStageVolumeRequest,
@@ -479,8 +508,7 @@ func (ns *NodeServer) undoStagingTransaction(
 		err = ns.Mounter.Unmount(stagingTargetPath)
 		if err != nil {
 			log.ErrorLog(ctx, "failed to unmount stagingtargetPath: %s with error: %v", stagingTargetPath, err)
-
-			return
+			// Continue anyway - try to clean up what we can
 		}
 	}
 
@@ -490,6 +518,18 @@ func (ns *NodeServer) undoStagingTransaction(
 		if err != nil {
 			log.ErrorLog(ctx, "failed to remove stagingtargetPath: %s with error: %v", stagingTargetPath, err)
 			// continue on failure to disconnect the image
+		}
+	}
+	// disconnect if we connected
+	if transaction.devicePath != "" {
+		mountedDevices, err := getNVMeMountedDevices(ctx)
+		if err != nil {
+			log.WarningLog(ctx, "failed to get mounted devices during rollback: %v (skipping disconnect)", err)
+		} else {
+			if err := ns.initiator.DisconnectIfLastMount(ctx, transaction.devicePath, mountedDevices); err != nil {
+				log.WarningLog(ctx, "failed to disconnect during rollback for device %s: %v",
+					transaction.devicePath, err)
+			}
 		}
 	}
 }
@@ -749,20 +789,19 @@ func getStagingTargetPath(req interface{}) string {
 	return ""
 }
 
-// getDeviceFromMount finds the device path for a given mount path.
-func (ns *NodeServer) getDeviceFromMount(ctx context.Context, mountPath string) (string, error) {
-	mountPoints, err := ns.Mounter.List()
+// getDeviceFromStagingPath returns the device path for either filesystem or block volumes.
+func getDeviceFromStagingPath(ctx context.Context, stagingTargetPath string) string {
+	device, err := nvmeutil.GetDeviceFromMountpoint(ctx, stagingTargetPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to list mounts: %w", err)
+		log.DebugLog(ctx, "could not get device from staging path %s: %v", stagingTargetPath, err)
+
+		return ""
 	}
 
-	for _, mp := range mountPoints {
-		if mp.Path == mountPath {
-			log.DebugLog(ctx, "found device %s for mount path %s", mp.Device, mountPath)
+	return device
+}
 
-			return mp.Device, nil
-		}
-	}
-
-	return "", fmt.Errorf("no mount found for path %s", mountPath)
+// getNVMeMountedDevices returns a map of all currently mounted NVMe devices.
+func getNVMeMountedDevices(ctx context.Context) (map[string]bool, error) {
+	return nvmeutil.GetAllNVMeMountedDevices(ctx)
 }

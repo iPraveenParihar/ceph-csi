@@ -12,8 +12,10 @@ RUN sed -i 's|^mirrorlist=|#mirrorlist=|g' /etc/yum.repos.d/*.repo && \
 # TODO: remove the following cmd, when issues
 # https://github.com/ceph/ceph-container/issues/2034
 # https://github.com/ceph/ceph-container/issues/2141 are fixed.
-RUN dnf config-manager --disable \
-    tcmu-runner,tcmu-runner-source,tcmu-runner-noarch,ceph-iscsi,ganesha || true
+RUN true \
+    && dnf -y reinstall https://download.ceph.com/rpm-${CEPH_VERSION}/el9/noarch/ceph-release-1-1.el9.noarch.rpm \
+    && ( dnf config-manager --disable tcmu-runner,tcmu-runner-source,tcmu-runner-noarch,ceph-iscsi,ganesha || true ) \
+    && true
 
 RUN mkdir /etc/selinux || true && touch /etc/selinux/config
 
@@ -38,7 +40,7 @@ COPY build.env /
 RUN source /build.env && \
     ( test -n "${GO_ARCH}" && exit 0; echo -e "\n\nMissing GO_ARCH argument for building image, install Golang or run: make image-cephcsi GOARCH=amd64\n\n"; exit 1 ) && \
     mkdir -p ${GOROOT} && \
-    curl https://storage.googleapis.com/golang/go${GOLANG_VERSION}.linux-${GO_ARCH}.tar.gz | tar xzf - -C ${GOROOT} --strip-components=1
+    curl -L https://go.dev/dl/go${GOLANG_VERSION}.linux-${GO_ARCH}.tar.gz | tar xzf - -C ${GOROOT} --strip-components=1
 
 # test if the downloaded version of Golang works (different arch?)
 RUN ${GOROOT}/bin/go version && ${GOROOT}/bin/go env

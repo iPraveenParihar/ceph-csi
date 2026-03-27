@@ -23,7 +23,7 @@ require (
 	github.com/google/fscrypt v0.3.6
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
-	github.com/hashicorp/vault/api v1.22.0
+	github.com/hashicorp/vault/api v1.23.0
 	github.com/kubernetes-csi/csi-lib-utils v0.23.2
 	github.com/libopenstorage/secrets v0.0.0-20231011182615-5f4b25ceede1
 	github.com/pkg/xattr v0.4.12
@@ -35,12 +35,12 @@ require (
 	golang.org/x/sys v0.42.0
 	google.golang.org/grpc v1.79.3
 	google.golang.org/protobuf v1.36.11
-	k8s.io/api v0.35.2
-	k8s.io/apimachinery v0.35.2
-	k8s.io/cloud-provider v0.35.1
+	k8s.io/api v0.35.3
+	k8s.io/apimachinery v0.35.3
+	k8s.io/cloud-provider v0.35.3
 	k8s.io/klog/v2 v2.140.0
-	k8s.io/kubernetes v1.35.2
-	k8s.io/mount-utils v0.35.1
+	k8s.io/kubernetes v1.35.3
+	k8s.io/mount-utils v0.35.3
 	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4
 )
 
@@ -50,7 +50,7 @@ require (
 	sigs.k8s.io/controller-runtime v0.23.3
 )
 
-replace k8s.io/client-go => k8s.io/client-go v0.35.1
+replace k8s.io/client-go => k8s.io/client-go v0.35.3
 
 exclude (
 	// missing tag, referred to by github.com/hashicorp/go-kms-wrapping@v0.5.1
@@ -157,11 +157,11 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/apiextensions-apiserver v0.35.1 // indirect
-	k8s.io/apiserver v0.35.1 // indirect
-	k8s.io/component-base v0.35.1 // indirect
-	k8s.io/controller-manager v0.35.1 // indirect
-	k8s.io/csi-translation-lib v0.35.1 // indirect
+	k8s.io/apiextensions-apiserver v0.35.3 // indirect
+	k8s.io/apiserver v0.35.3 // indirect
+	k8s.io/component-base v0.35.3 // indirect
+	k8s.io/controller-manager v0.35.3 // indirect
+	k8s.io/csi-translation-lib v0.35.3 // indirect
 	k8s.io/kube-openapi v0.0.0-20250910181357-589584f1c912 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect

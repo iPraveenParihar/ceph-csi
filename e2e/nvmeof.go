@@ -22,6 +22,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/test/e2e/framework"
 	e2edebug "k8s.io/kubernetes/test/e2e/framework/debug"
 	"k8s.io/pod-security-admission/api"
@@ -60,9 +61,9 @@ var _ = ginkgo.Describe("nvmeof", func() {
 		if err != nil {
 			logAndFail("failed to get Ceph cluster version: %v", err)
 		}
-		if version.GetMajor() < CephMajorTentacle {
+		if !version.GreaterEquals(CephVersionTentacle) {
 			deployNVMeoF = false
-			ginkgo.Skip("Skipping NVMe-oF E2E, requires Ceph 20 (Tentacle):" + version.String())
+			ginkgo.Skip("Skipping NVMe-oF E2E, requires Ceph v20 (Tentacle): " + version.String())
 		}
 
 		framework.Logf("NVMe-oF testing supported, Ceph version: %s", version)
@@ -108,6 +109,13 @@ var _ = ginkgo.Describe("nvmeof", func() {
 			// log node plugin
 			logsCSIPods("app="+nvmeofDaemonsetName, f.ClientSet)
 
+			// Gateway logs - need to search in rook-ceph namespace
+			opt := metav1.ListOptions{LabelSelector: "app=ceph-nvmeof-gateway"}
+			podList, _ := f.ClientSet.CoreV1().Pods(rookNamespace).List(context.TODO(), opt)
+			for i := range podList.Items {
+				kubectlLogPod(f.ClientSet, &podList.Items[i])
+			}
+
 			// log all details from the namespace where Ceph-CSI is deployed
 			e2edebug.DumpAllNamespaceInfo(context.TODO(), f.ClientSet, cephCSINamespace)
 		}
@@ -121,23 +129,22 @@ var _ = ginkgo.Describe("nvmeof", func() {
 
 		pvcPath := nvmeofExamplePath + "pvc.yaml"
 		appPath := nvmeofExamplePath + "pod.yaml"
+		rawPvcPath := nvmeofExamplePath + "raw-block-pvc.yaml"
+		rawAppPath := nvmeofExamplePath + "raw-block-pod.yaml"
 
 		ginkgo.It("create a PVC and delete it", func() {
-			ginkgo.By("prepare PVC")
 			pvc, err := loadPVC(pvcPath)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			pvc.Namespace = f.UniqueName
 			pvc.Spec.StorageClassName = &nvmeofStorageClass
 
-			ginkgo.By("create the PVC")
 			err = createPVCAndvalidatePV(f.ClientSet, pvc, deployTimeout)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			validateRBDImageCount(f, 1, nvmeofPool)
 			validateOmapCount(f, 1, rbdType, nvmeofPool, volumesType)
 
-			ginkgo.By("delete the PVC again")
 			err = deletePVCAndValidatePV(f.ClientSet, pvc, deployTimeout)
 			Expect(err).ShouldNot(HaveOccurred())
 
@@ -146,6 +153,36 @@ var _ = ginkgo.Describe("nvmeof", func() {
 				pvcPath, appPath,
 				".rbd.csi.ceph.com/serviceaccount", nvmeofPool,
 				&nvmeofStorageClass, f)
+			Expect(err).ShouldNot(HaveOccurred())
+
+			// validate created backend rbd images
+			validateRBDImageCount(f, 0, nvmeofPool)
+			validateOmapCount(f, 0, rbdType, nvmeofPool, volumesType)
+		})
+
+		ginkgo.It("Resize Filesystem PVC and check application directory size", func() {
+			pvc, err := loadPVC(pvcPath)
+			Expect(err).ShouldNot(HaveOccurred())
+
+			pvc.Namespace = f.UniqueName
+			pvc.Spec.StorageClassName = &nvmeofStorageClass
+
+			err = resizePVCAndValidateSize(pvc, appPath, f)
+			Expect(err).ShouldNot(HaveOccurred())
+
+			// validate created backend rbd images
+			validateRBDImageCount(f, 0, nvmeofPool)
+			validateOmapCount(f, 0, rbdType, nvmeofPool, volumesType)
+		})
+
+		ginkgo.It("Resize Block PVC and check Device size", func() {
+			pvc, err := loadPVC(rawPvcPath)
+			Expect(err).ShouldNot(HaveOccurred())
+
+			pvc.Namespace = f.UniqueName
+			pvc.Spec.StorageClassName = &nvmeofStorageClass
+
+			err = resizePVCAndValidateSize(pvc, rawAppPath, f)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			// validate created backend rbd images

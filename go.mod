@@ -1,8 +1,6 @@
 module github.com/ceph/ceph-csi
 
-go 1.23.0
-
-toolchain go1.23.10
+go 1.24.0
 
 require (
 	github.com/IBM/keyprotect-go-client v0.15.1
@@ -55,9 +53,6 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/security/keyvault/azsecrets v1.3.0
 )
 
-// Address CVE-2025-27144
-replace github.com/go-jose/go-jose/v4 => github.com/go-jose/go-jose/v4 v4.0.5
-
 require (
 	cyphar.com/go-pathrs v0.2.1 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.16.0 // indirect
@@ -91,8 +86,8 @@ require (
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
 	github.com/gemalto/flume v0.13.0 // indirect
 	github.com/ghodss/yaml v1.0.1-0.20190212211648-25d852aebe32 // indirect
-	github.com/go-jose/go-jose/v4 v4.0.1 // indirect
-	github.com/go-logr/logr v1.4.2 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
+	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/jsonpointer v0.19.6 // indirect
 	github.com/go-openapi/jsonreference v0.20.2 // indirect

@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/kubernetes/test/e2e/framework"
 )
 
 const (
@@ -58,13 +59,47 @@ func (r *OperatorDeployment) getPodSelector() string {
 		r.deploymentName, r.daemonsetName)
 }
 
-func (OperatorDeployment) setEnableMetadata(value bool) error {
+func (r *OperatorDeployment) setEnableMetadata(value bool) error {
 	command := []string{
 		"operatorconfigs.csi.ceph.io",
 		OperatorConfigName,
 		"--type=merge",
 		"-p",
 		fmt.Sprintf(`{"spec": {"driverSpecDefaults": {"enableMetadata": %t}}}`, value),
+	}
+
+	// Patch the operator config
+	err := retryKubectlArgs(cephCSINamespace, kubectlPatch, deployTimeout, command...)
+	if err != nil {
+		return err
+	}
+
+	// restart the pods so that the new configuration is activated
+	framework.Logf("enableMetadata has been set to %t, restarting Ceph-CSI pods", value)
+	podLabels := r.getPodSelector()
+	err = deletePodWithLabel(podLabels, cephCSINamespace, false)
+	if err != nil {
+		return fmt.Errorf("failed to delete pods with labels (%s): %w", podLabels, err)
+	}
+	err = waitForDaemonSets(r.daemonsetName, cephCSINamespace, r.clientSet, deployTimeout)
+	if err != nil {
+		return fmt.Errorf("timeout waiting for daemonset pods: %w", err)
+	}
+	err = waitForDeploymentComplete(r.clientSet, r.deploymentName, cephCSINamespace, deployTimeout)
+	if err != nil {
+		return fmt.Errorf("timeout waiting for deployment to be in running state: %w", err)
+	}
+
+	return nil
+}
+
+func (OperatorDeployment) setEnableFencing(value bool) error {
+	command := []string{
+		"operatorconfigs.csi.ceph.io",
+		OperatorConfigName,
+		"--type=merge",
+		"-p",
+		fmt.Sprintf(`{"spec": {"driverSpecDefaults": {"enableFencing": %t}}}`, value),
 	}
 
 	// Patch the operator config

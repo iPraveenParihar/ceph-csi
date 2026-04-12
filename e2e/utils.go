@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"regexp"
 	"strconv"
@@ -112,6 +113,7 @@ type DeploymentMethod interface {
 	getDaemonsetName() string
 	getPodSelector() string
 	setClusterName(clusterName string) error
+	setEnableFencing(enable bool) error
 }
 type RBDDeploymentMethod interface {
 	DeploymentMethod
@@ -155,6 +157,12 @@ func (d *DriverInfo) setClusterName(clusterName string) error {
 		return fmt.Errorf("timeout waiting for clustername arg update %s/%s: %v", cephCSINamespace, d.deploymentName, err)
 	}
 
+	return nil
+}
+
+func (d *DriverInfo) setEnableFencing(enable bool) error {
+	// No-op as fencing is enabled in the yaml files by default, disabling is not needed.
+	// Required implementation in OperatorDeployment.
 	return nil
 }
 
@@ -810,7 +818,12 @@ func checkDataPersist(pvcPath, appPath string, f *framework.Framework) error {
 	// write data to PVC
 	filePath := app.Spec.Containers[0].VolumeMounts[0].MountPath + "/test"
 
-	_, stdErr, err := execCommandInPod(f, fmt.Sprintf("echo %s > %s", data, filePath), app.Namespace, &opt)
+	_, stdErr, err := execCommandInPod(
+		f,
+		fmt.Sprintf("echo -n '%s' | dd of=%s status=none conv=fsync", data, filePath),
+		app.Namespace,
+		&opt,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to exec command in pod: %w", err)
 	}
@@ -1716,6 +1729,99 @@ func k8sVersionGreaterEquals(c kubernetes.Interface, major, minor int) bool {
 	vMinor, err := strconv.Atoi(v.Minor)
 	if err != nil {
 		logAndFail("failed to convert Kubernetes minor version %q to int: %v", v.Minor, err)
+	}
+
+	return (vMajor > major) || (vMajor == major && vMinor >= minor)
+}
+
+// parseCephCSIVersion parses the version string reported by "cephcsi -version"
+// and returns the major and minor version numbers. Supported formats:
+//
+//   - "canary"          – unversioned development build; returns math.MaxInt
+//   - "v3.16.8"         – release build
+//   - "v3.16-canary"    – pre-release snapshot for the 3.16 series
+//   - "v3.17-canary"    – pre-release snapshot for the 3.17 series
+//
+// In all pre-release / canary cases the returned values represent the version
+// series the build belongs to, so callers can use them for feature gating.
+func parseCephCSIVersion(version string) (int, int, error) {
+	if version == "canary" {
+		return math.MaxInt, math.MaxInt, nil
+	}
+
+	// Strip the optional "v" prefix.
+	version = strings.TrimPrefix(version, "v")
+
+	// Split on "." to separate major from the rest ("16", "16.8", "16-canary").
+	parts := strings.SplitN(version, ".", 3)
+	if len(parts) < 2 {
+		return 0, 0, fmt.Errorf("unexpected cephcsi version format: %q", version)
+	}
+
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to parse major version from %q: %w", version, err)
+	}
+
+	// The minor segment may carry a pre-release suffix separated by "-"
+	// (e.g. "16-canary"); discard everything from the first "-" onward.
+	minorStr, _, _ := strings.Cut(parts[1], "-")
+	minor, err := strconv.Atoi(minorStr)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to parse minor version from %q: %w", version, err)
+	}
+
+	return major, minor, nil
+}
+
+// getCephCSIVersion runs "cephcsi -version" in the given nodeplugin container
+// and returns the major and minor version numbers parsed from the
+// "Cephcsi Version:" line of the output. Development builds that report
+// "canary" as their version return math.MaxInt for both values so that they
+// always compare as newer than any specific release.
+func getCephCSIVersion(f *framework.Framework, daemonsetName, containerName string) (int, int, error) {
+	selector, err := getDaemonSetLabelSelector(f, cephCSINamespace, daemonsetName)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get DaemonSet label selector for %s: %w", daemonsetName, err)
+	}
+
+	opt := metav1.ListOptions{
+		LabelSelector: selector,
+	}
+
+	stdout, stdErr, err := execCommandInContainer(f, "cephcsi -version", cephCSINamespace, containerName, &opt)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to run cephcsi -version in %s: %w", containerName, err)
+	}
+	if stdErr != "" {
+		return 0, 0, fmt.Errorf("cephcsi -version returned stderr in %s: %s", containerName, stdErr)
+	}
+
+	for _, line := range strings.Split(stdout, "\n") {
+		if !strings.HasPrefix(line, "Cephcsi Version:") {
+			continue
+		}
+
+		version := strings.TrimSpace(strings.TrimPrefix(line, "Cephcsi Version:"))
+
+		return parseCephCSIVersion(version)
+	}
+
+	return 0, 0, fmt.Errorf("failed to find version in cephcsi -version output: %q", stdout)
+}
+
+// cephcsiVersionGreaterEquals checks the version of the cephcsi binary
+// running in the given nodeplugin container and compares it to the
+// major.minor version passed. It returns true when the running version is
+// equal to or newer than major.minor, false otherwise.
+// If fetching the version fails, the calling test case is marked as FAILED
+// and gets aborted.
+func cephcsiVersionGreaterEquals(f *framework.Framework, daemonsetName, containerName string, major, minor int) bool {
+	vMajor, vMinor, err := getCephCSIVersion(f, daemonsetName, containerName)
+	if err != nil {
+		logAndFail("failed to get cephcsi version from %s/%s: %v", daemonsetName, containerName, err)
+		// logAndFail calls framework.Failf which terminates the goroutine;
+		// this return is unreachable but satisfies the compiler.
 	}
 
 	return (vMajor > major) || (vMajor == major && vMinor >= minor)

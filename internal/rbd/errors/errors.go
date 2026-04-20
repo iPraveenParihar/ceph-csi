@@ -74,6 +74,9 @@ var (
 	ErrStatusNotFound = errors.New("rbd image/group status not found")
 	// ErrGroupInvalidArgument is returned when an invalid operation is attempted on the group.
 	ErrGroupInvalidArgument = errors.New("rbd group invalid arguments provided")
+	// ErrMounterUnknown is returned when the mounter type for a volume is not stored in metadata.
+	// This can happen for volumes created before mounter metadata tracking was added.
+	ErrMounterUnknown = errors.New("mounter type unknown")
 )
 
 // ErrorCode is an interface that defines a method to return an error code.

@@ -63,9 +63,6 @@ type ControllerServer struct {
 
 	// Cluster name
 	ClusterName string
-
-	// Set metadata on volume
-	SetMetadata bool
 }
 
 func (cs *ControllerServer) validateVolumeReq(ctx context.Context, req *csi.CreateVolumeRequest) error {
@@ -194,8 +191,6 @@ func (cs *ControllerServer) parseVolCreateRequest(
 
 	// set cluster name on volume
 	rbdVol.ClusterName = cs.ClusterName
-	// set metadata on volume
-	rbdVol.EnableMetadata = cs.SetMetadata
 
 	// if the KMS is of type VaultToken, additional metadata is needed
 	// depending on the tenant, the KMS can be configured with other
@@ -235,8 +230,8 @@ func (cs *ControllerServer) parseVolCreateRequest(
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	// Get QosParameters from SC if qos configuration existing in SC
-	err = rbdVol.SetQOS(ctx, req.GetParameters())
+	// parse QOS parameters from mutable parameters
+	err = rbdVol.SetQOS(ctx, req.GetMutableParameters())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -436,7 +431,7 @@ func (cs *ControllerServer) CreateVolume(
 		}
 	}()
 
-	err = cs.createBackingImage(ctx, cr, req.GetSecrets(), rbdVol, parentVol, rbdSnap, req.GetParameters())
+	err = cs.createBackingImage(ctx, cr, req.GetSecrets(), rbdVol, parentVol, rbdSnap, req.GetMutableParameters())
 	if err != nil {
 		if errors.Is(err, rbderrors.ErrFlattenInProgress) {
 			return nil, status.Error(codes.Aborted, err.Error())
@@ -766,7 +761,7 @@ func (cs *ControllerServer) createBackingImage(
 	secrets map[string]string,
 	rbdVol, parentVol *rbdVolume,
 	rbdSnap *rbdSnapshot,
-	scParams map[string]string,
+	mutableParameters map[string]string,
 ) error {
 	var err error
 
@@ -828,8 +823,8 @@ func (cs *ControllerServer) createBackingImage(
 
 		return status.Error(codes.Internal, err.Error())
 	}
-	// Save Qos parameters from SC in Image metadata, we will use it while resize volume.
-	err = rbdVol.SaveQOS(ctx, scParams)
+	// Save Qos parameters from mutable parameters in Image metadata, we will use it while resize volume.
+	err = rbdVol.SaveQOS(ctx, mutableParameters)
 	if err != nil {
 		log.ErrorLog(ctx, "failed to save QOS for rbd image: %s with error: %v", rbdVol, err)
 
@@ -1204,8 +1199,6 @@ func (cs *ControllerServer) CreateSnapshot(
 
 		return nil, err
 	}
-	rbdVol.EnableMetadata = cs.SetMetadata
-
 	// Check if source volume was created with required image features for snaps
 	if !rbdVol.hasSnapshotFeature() {
 		return nil, status.Errorf(
@@ -1410,9 +1403,10 @@ func (cs *ControllerServer) doSnapshotClone(
 	// generate cloned volume details from snapshot
 	cloneRbd := rbdSnap.toVolume()
 	defer cloneRbd.Destroy(ctx)
-	// add image feature for cloneRbd
+	// Use the parent volume's image features and ensure that layering and
+	// deep-flatten are always enabled for the snapshot backing image.
 	f := []string{librbd.FeatureNameLayering, librbd.FeatureNameDeepFlatten}
-	cloneRbd.ImageFeatureSet = librbd.FeatureSetFromNames(f)
+	cloneRbd.ImageFeatureSet = parentVol.ImageFeatureSet | librbd.FeatureSetFromNames(f)
 
 	// For snapshot creation, the temporary clone must use the same data pool as the parent
 	// volume to ensure correct storage placement for erasure-coded pools.
@@ -1863,16 +1857,12 @@ func (cs *ControllerServer) ControllerUnpublishVolume(
 //   - rbdVolume: The rbdVolume object representing the RBD image.
 //
 // Behavior:
-//   - If the '--setmetadata' flag is set to false in CSI driver configuration, does nothing.
 //   - Removes the user ID mapping metadata for the specified nodeId from the RBD image.
 func (cs *ControllerServer) removeUserIdMapping(
 	ctx context.Context,
 	nodeId string,
 	rv *rbdVolume,
 ) error {
-	if !cs.SetMetadata {
-		return nil
-	}
 	if nodeId == "" {
 		return errors.New("nodeId cannot be empty")
 	}
@@ -1980,4 +1970,106 @@ func (cs *ControllerServer) fenceNode(
 	}
 
 	return nil
+}
+
+// ControllerModifyVolume modify the QoS of rbd based on of ControllerModifyVolumeRequest.
+//
+// Parameters:
+//   - csi.ControllerModifyVolumeRequest: Passing a list of mutable parameters from csi-resizer.
+//
+// Return an error if any step in the ControllerModifyVolume process fails.
+func (cs *ControllerServer) ControllerModifyVolume(
+	ctx context.Context,
+	req *csi.ControllerModifyVolumeRequest,
+) (*csi.ControllerModifyVolumeResponse, error) {
+	err := cs.Driver.ValidateControllerServiceRequest(csi.ControllerServiceCapability_RPC_MODIFY_VOLUME)
+	if err != nil {
+		log.ErrorLog(ctx, "invalid modify volume req: %v", protosanitizer.StripSecrets(req))
+
+		return nil, err
+	}
+
+	volID := req.GetVolumeId()
+	if err := util.ValidateVolumeID(volID, true); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+
+	mutableParameters := req.GetMutableParameters()
+	if mutableParameters == nil {
+		log.ErrorLog(ctx, "invalid modify volume req: %v", protosanitizer.StripSecrets(req))
+
+		return nil, status.Error(codes.InvalidArgument, "mutable parameters cannot be empty")
+	}
+
+	// lock out parallel requests against the same volume ID
+	if acquired := cs.VolumeLocks.TryAcquire(volID); !acquired {
+		log.ErrorLog(ctx, util.VolumeOperationAlreadyExistsFmt, volID)
+
+		return nil, status.Errorf(codes.Aborted, util.VolumeOperationAlreadyExistsFmt, volID)
+	}
+	defer cs.VolumeLocks.Release(volID)
+
+	cr, err := util.NewUserCredentialsWithMigration(req.GetSecrets())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	defer cr.DeleteCredentials()
+	rbdVol, err := genVolFromVolIDWithMigration(ctx, volID, cr, req.GetSecrets())
+	if err != nil {
+		switch {
+		case errors.Is(err, rbderrors.ErrImageNotFound):
+			err = status.Errorf(codes.NotFound, "volume ID %s not found", volID)
+		case errors.Is(err, util.ErrPoolNotFound):
+			log.ErrorLog(ctx, "failed to get backend volume for %s: %v", volID, err)
+			err = status.Error(codes.NotFound, err.Error())
+		case errors.Is(err, rbderrors.ErrInvalidVolID):
+			// likely a static provisioned volume
+			// InvalidArgument indicates that the CO has specified capabilities not supported by the volume
+			err = status.Errorf(codes.InvalidArgument, "volume ID %s does not support modify", volID)
+		default:
+			err = status.Error(codes.Internal, err.Error())
+		}
+
+		return nil, err
+	}
+	defer rbdVol.Destroy(ctx)
+
+	// lock out volumeID for create, clone, expand and delete operation
+	if err = cs.OperationLocks.GetModifyLock(volID); err != nil {
+		log.ErrorLog(ctx, err.Error())
+
+		return nil, status.Error(codes.Aborted, err.Error())
+	}
+	defer cs.OperationLocks.ReleaseModifyLock(volID)
+
+	// QoS parameters only work with rbd-nbd mounter
+	usesNBD, err := rbdVol.UsesNBDMounter(ctx)
+	switch {
+	case errors.Is(err, rbderrors.ErrMounterUnknown):
+		// Volume created before mounter tracking - proceed with warning
+		log.WarningLog(ctx, "volume %s has unknown mounter type (created before mounter tracking), "+
+			"proceeding with modification but QoS may not work if volume does not use rbd-nbd", volID)
+	case err != nil:
+		log.ErrorLog(ctx, "failed to check mounter type for volume %s: %v", volID, err)
+
+		return nil, status.Errorf(codes.Internal, "failed to determine volume mounter type: %v", err)
+	case !usesNBD:
+		log.ErrorLog(ctx, "volume %s uses mounter %q, QoS modification requires %q",
+			volID, rbdVol.Mounter, rbdNbdMounter)
+
+		return nil, status.Errorf(codes.InvalidArgument,
+			"volume modification requires rbd-nbd mounter, volume uses %q", rbdVol.Mounter)
+	}
+
+	// set RequestedVolSize, because calcQosBasedOnCapacity use it.
+	rbdVol.RequestedVolSize = rbdVol.VolSize
+
+	err = rbdVol.modifyVolumeAttributes(ctx, mutableParameters)
+	if err != nil {
+		log.ErrorLog(ctx, "failed to modify volume: %s with error: %v", rbdVol, err)
+
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	return &csi.ControllerModifyVolumeResponse{}, nil
 }

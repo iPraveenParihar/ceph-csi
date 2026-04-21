@@ -82,6 +82,9 @@ const (
 	// clusterNameKey cluster Key, set on RBD image.
 	clusterNameKey = "csi.ceph.com/cluster/name"
 
+	// mounterKey is the key used to store the mounter type.
+	mounterKey = "csi.ceph.com/mounter"
+
 	// clientAddressKey is the key used to store the client address.
 	// starts with `.` to avoid copying it to the mirrored image.
 	clientAddressKey = ".rbd.csi.ceph.com/clientaddress"
@@ -160,8 +163,6 @@ type rbdImage struct {
 	// an opened IOContext, call .openIoctx() before using
 	ioctx *rados.IOContext
 
-	// Set metadata on volume
-	EnableMetadata bool
 	// ParentInTrash indicates the parent image is in trash.
 	ParentInTrash bool
 
@@ -2291,10 +2292,6 @@ func genVolFromVolIDWithMigration(
 
 // setAllMetadata set all the metadata from arg parameters on RBD image.
 func (rv *rbdVolume) setAllMetadata(parameters map[string]string) error {
-	if !rv.EnableMetadata {
-		return nil
-	}
-
 	for k, v := range parameters {
 		err := rv.SetMetadata(k, v)
 		if err != nil {
@@ -2307,6 +2304,14 @@ func (rv *rbdVolume) setAllMetadata(parameters map[string]string) error {
 		if err != nil {
 			return fmt.Errorf("failed to set metadata key %q, value %q on image: %w",
 				clusterNameKey, rv.ClusterName, err)
+		}
+	}
+
+	if rv.Mounter != "" {
+		err := rv.SetMetadata(mounterKey, rv.Mounter)
+		if err != nil {
+			return fmt.Errorf("failed to set metadata key %q, value %q on image: %w",
+				mounterKey, rv.Mounter, err)
 		}
 	}
 
@@ -2325,6 +2330,11 @@ func (rv *rbdVolume) unsetAllMetadata(keys []string) error {
 	err := rv.RemoveMetadata(clusterNameKey)
 	if err != nil && !errors.Is(err, librbd.ErrNotExist) {
 		return fmt.Errorf("failed to unset metadata key %q on %q: %w", clusterNameKey, rv, err)
+	}
+
+	err = rv.RemoveMetadata(mounterKey)
+	if err != nil && !errors.Is(err, librbd.ErrNotExist) {
+		return fmt.Errorf("failed to unset metadata key %q on %q: %w", mounterKey, rv, err)
 	}
 
 	return nil
@@ -2426,4 +2436,63 @@ func (rv *rbdVolume) getUsedBytes(ctx context.Context) (uint64, error) {
 		rv, rv.VolSize, end.Sub(start).Seconds())
 
 	return usedBytes, nil
+}
+
+// UsesNBDMounter checks if the volume uses the rbd-nbd mounter.
+// If the Mounter field is not set, it attempts to fetch it from the image metadata.
+// Returns rbderrors.ErrMounterUnknown if no mounter metadata is stored (e.g., for
+// volumes created before mounter tracking was added).
+func (rv *rbdVolume) UsesNBDMounter(ctx context.Context) (bool, error) {
+	// If Mounter is already set, use it
+	if rv.Mounter != "" {
+		return rv.Mounter == rbdNbdMounter, nil
+	}
+
+	// Try to fetch mounter from metadata
+	mounter, err := rv.GetMetadata(mounterKey)
+	if err != nil {
+		if errors.Is(err, librbd.ErrNotExist) {
+			// No mounter metadata stored - likely a volume created before mounter tracking
+			log.DebugLog(ctx, "no mounter metadata found for volume %s", rv.VolID)
+
+			return false, rbderrors.ErrMounterUnknown
+		}
+
+		return false, fmt.Errorf("failed to get mounter metadata: %w", err)
+	}
+
+	// Cache the mounter value
+	if mounter != "" {
+		rv.Mounter = mounter
+	}
+
+	return rv.Mounter == rbdNbdMounter, nil
+}
+
+func (rv *rbdVolume) modifyVolumeAttributes(
+	ctx context.Context,
+	newMutableParameters map[string]string,
+) error {
+	image, err := rv.open()
+	if err != nil {
+		return err
+	}
+	defer image.Close() //nolint:errcheck // not a critical failure
+
+	err = rv.SetQOS(ctx, newMutableParameters)
+	if err != nil {
+		return err
+	}
+
+	err = rv.ApplyQOS(ctx)
+	if err != nil {
+		return err
+	}
+
+	err = rv.SaveQOS(ctx, newMutableParameters)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

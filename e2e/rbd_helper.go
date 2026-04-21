@@ -28,8 +28,10 @@ import (
 
 	"github.com/google/uuid"
 	snapapi "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
+	. "github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
 	scv1 "k8s.io/api/storage/v1"
+	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
@@ -112,6 +114,13 @@ func rbdOptions(pool string) string {
 	}
 
 	return "--pool=" + pool
+}
+
+// supportsVolumeAttributesClass returns true when both the Kubernetes cluster
+// (>= 1.34) and the deployed ceph-csi (>= 3.17) support VolumeAttributesClass.
+func supportsVolumeAttributesClass(c kubernetes.Interface, f *framework.Framework) bool {
+	return k8sVersionGreaterEquals(c, 1, 34) &&
+		cephcsiVersionGreaterEquals(f, rbdDaemonsetName, rbdContainerName, 3, 17)
 }
 
 func createRBDStorageClass(
@@ -1230,11 +1239,12 @@ func waitToRemoveImagesFromTrash(f *framework.Framework, poolName string, t int)
 
 // imageInfo strongly typed JSON spec for image info.
 type imageInfo struct {
-	Name        string `json:"name"`
-	StripeUnit  int    `json:"stripe_unit"`
-	StripeCount int    `json:"stripe_count"`
-	ObjectSize  int    `json:"object_size"`
-	DataPool    string `json:"data_pool"`
+	Name        string   `json:"name"`
+	StripeUnit  int      `json:"stripe_unit"`
+	StripeCount int      `json:"stripe_count"`
+	ObjectSize  int      `json:"object_size"`
+	DataPool    string   `json:"data_pool"`
+	Features    []string `json:"features"`
 }
 
 // getImageInfo queries rbd about the given image and returns its metadata, and returns
@@ -1308,6 +1318,40 @@ func validateStripe(f *framework.Framework,
 
 	if imgInfo.StripeCount != stripeCount {
 		return fmt.Errorf("stripeCount %d does not match expected %d", imgInfo.StripeCount, stripeCount)
+	}
+
+	return nil
+}
+
+// validateImageFeatures checks that the given RBD image has all the expected
+// image features enabled.
+func validateImageFeatures(
+	f *framework.Framework,
+	imageName, pool string,
+	expectedFeatures []string,
+) error {
+	var imgInfo imageInfo
+
+	imgInfoStr, err := getImageInfo(f, imageName, pool)
+	if err != nil {
+		return err
+	}
+
+	err = json.Unmarshal([]byte(imgInfoStr), &imgInfo)
+	if err != nil {
+		return fmt.Errorf("unmarshal failed: %w. raw buffer response: %s", err, imgInfoStr)
+	}
+
+	actualSet := make(map[string]bool, len(imgInfo.Features))
+	for _, feat := range imgInfo.Features {
+		actualSet[feat] = true
+	}
+
+	for _, want := range expectedFeatures {
+		if !actualSet[want] {
+			return fmt.Errorf("image %s missing expected feature %q, got features: %v",
+				imageName, want, imgInfo.Features)
+		}
 	}
 
 	return nil
@@ -1616,4 +1660,121 @@ func validateServiceAccountVolumeRestriction(
 	}
 
 	return nil
+}
+
+func createRBDVolumeAttributesClass(
+	c kubernetes.Interface,
+	f *framework.Framework,
+	name string,
+	params map[string]string,
+) error {
+	vacPath := fmt.Sprintf("%s/%s", rbdExamplePath, "volumeattributesclass.yaml")
+	vac, err := getVolumeAttributesClass(vacPath)
+	if err != nil {
+		return fmt.Errorf("failed to get vac: %w", err)
+	}
+	if name != "" {
+		vac.Name = name
+	}
+
+	// overload any parameters that were passed
+	if params == nil {
+		// create an empty params, so that params["clusterID"] below
+		// does not panic
+		params = map[string]string{}
+	}
+	for param, value := range params {
+		vac.Parameters[param] = value
+	}
+
+	timeout := time.Duration(deployTimeout) * time.Minute
+
+	return wait.PollUntilContextTimeout(context.TODO(), poll, timeout, true, func(ctx context.Context) (bool, error) {
+		_, err = c.StorageV1().VolumeAttributesClasses().Create(ctx, &vac, metav1.CreateOptions{})
+		if err != nil {
+			framework.Logf("error creating VolumeAttributesClass %q: %v", vac.Name, err)
+			if apierrs.IsAlreadyExists(err) {
+				return true, nil
+			}
+			if isRetryableAPIError(err) {
+				return false, nil
+			}
+
+			return false, fmt.Errorf("failed to create VolumeAttributesClass %q: %w", vac.Name, err)
+		}
+
+		return true, nil
+	})
+}
+
+func deleteRBDVolumeAttributesClass(
+	c kubernetes.Interface,
+	f *framework.Framework,
+	name string,
+) error {
+	vacPath := fmt.Sprintf("%s/%s", rbdExamplePath, "volumeattributesclass.yaml")
+	vac, err := getVolumeAttributesClass(vacPath)
+	if err != nil {
+		return err
+	}
+	if name != "" {
+		vac.Name = name
+	}
+
+	timeout := time.Duration(deployTimeout) * time.Minute
+
+	return wait.PollUntilContextTimeout(context.TODO(), poll, timeout, true, func(ctx context.Context) (bool, error) {
+		err = c.StorageV1().VolumeAttributesClasses().Delete(ctx, vac.Name, metav1.DeleteOptions{})
+		if err != nil {
+			framework.Logf("error deleting VolumeAttributesClass %q: %v", vac.Name, err)
+			if apierrs.IsNotFound(err) {
+				return true, nil
+			}
+			if isRetryableAPIError(err) {
+				return false, nil
+			}
+
+			return false, fmt.Errorf("failed to delete VolumeAttributesClass %q: %w", vac.Name, err)
+		}
+
+		return true, nil
+	})
+}
+
+func modifyPVCVolumeAttributesClass(
+	c kubernetes.Interface,
+	pvc *v1.PersistentVolumeClaim,
+	vacName string,
+) error {
+	ctx := context.TODO()
+	pvcName := pvc.Name
+	pvcNamespace := pvc.Namespace
+	updatedPVC, err := getPersistentVolumeClaim(c, pvcNamespace, pvcName)
+	if err != nil {
+		return fmt.Errorf("error fetching pvc %q with %w", pvcName, err)
+	}
+
+	timeout := time.Duration(deployTimeout) * time.Minute
+	updatedPVC.Spec.VolumeAttributesClassName = &vacName
+	_, err = c.CoreV1().
+		PersistentVolumeClaims(updatedPVC.Namespace).
+		Update(ctx, updatedPVC, metav1.UpdateOptions{})
+	Expect(err).ShouldNot(HaveOccurred())
+
+	return wait.PollUntilContextTimeout(ctx, poll, timeout, true, func(ctx context.Context) (bool, error) {
+		updatedPVC, err = c.CoreV1().PersistentVolumeClaims(pvcNamespace).Get(ctx, pvcName, metav1.GetOptions{})
+		if err != nil {
+			if isRetryableAPIError(err) {
+				return false, nil
+			}
+
+			return false, fmt.Errorf("failed to get pvc: %w", err)
+		}
+
+		if *updatedPVC.Status.CurrentVolumeAttributesClassName != vacName {
+			return false, nil
+		}
+
+		return true, nil
+	})
 }

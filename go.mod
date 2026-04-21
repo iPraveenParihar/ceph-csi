@@ -11,7 +11,7 @@ require (
 	github.com/IBM/keyprotect-go-client v0.15.1
 	github.com/avast/retry-go/v4 v4.7.0
 	github.com/aws/aws-sdk-go v1.55.8
-	github.com/aws/aws-sdk-go-v2/service/sts v1.41.9
+	github.com/aws/aws-sdk-go-v2/service/sts v1.41.10
 	github.com/ceph/ceph-csi/api v0.0.0-00010101000000-000000000000
 	github.com/ceph/ceph-nvmeof/lib/go/nvmeof v0.0.0-20260120065657-2425981cdad5
 	github.com/ceph/go-ceph v0.38.0
@@ -23,24 +23,24 @@ require (
 	github.com/google/fscrypt v0.3.6
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
-	github.com/hashicorp/vault/api v1.22.0
+	github.com/hashicorp/vault/api v1.23.0
 	github.com/kubernetes-csi/csi-lib-utils v0.23.2
 	github.com/libopenstorage/secrets v0.0.0-20231011182615-5f4b25ceede1
 	github.com/pkg/xattr v0.4.12
 	github.com/prometheus/client_golang v1.23.2
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/automaxprocs v1.6.0
-	golang.org/x/crypto v0.49.0
-	golang.org/x/net v0.52.0
-	golang.org/x/sys v0.42.0
-	google.golang.org/grpc v1.79.2
+	golang.org/x/crypto v0.50.0
+	golang.org/x/net v0.53.0
+	golang.org/x/sys v0.43.0
+	google.golang.org/grpc v1.80.0
 	google.golang.org/protobuf v1.36.11
-	k8s.io/api v0.35.2
-	k8s.io/apimachinery v0.35.2
-	k8s.io/cloud-provider v0.35.1
+	k8s.io/api v0.35.3
+	k8s.io/apimachinery v0.35.3
+	k8s.io/cloud-provider v0.35.3
 	k8s.io/klog/v2 v2.140.0
-	k8s.io/kubernetes v1.35.2
-	k8s.io/mount-utils v0.35.1
+	k8s.io/kubernetes v1.35.3
+	k8s.io/mount-utils v0.35.3
 	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4
 )
 
@@ -52,7 +52,7 @@ require (
 	sigs.k8s.io/controller-runtime v0.23.3
 )
 
-replace k8s.io/client-go => k8s.io/client-go v0.35.1
+replace k8s.io/client-go => k8s.io/client-go v0.35.3
 
 exclude (
 	// missing tag, referred to by github.com/hashicorp/go-kms-wrapping@v0.5.1
@@ -73,11 +73,11 @@ require (
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.6.0 // indirect
 	github.com/ansel1/merry v1.8.1 // indirect
 	github.com/ansel1/merry/v2 v2.2.2 // indirect
-	github.com/aws/aws-sdk-go-v2 v1.41.4 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.20 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.20 // indirect
+	github.com/aws/aws-sdk-go-v2 v1.41.5 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.21 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.21 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.7 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.20 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.21 // indirect
 	github.com/aws/smithy-go v1.24.2 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
@@ -91,7 +91,7 @@ require (
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/gemalto/flume v1.0.0 // indirect
 	github.com/ghodss/yaml v1.0.1-0.20190212211648-25d852aebe32 // indirect
-	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect
@@ -150,20 +150,20 @@ require (
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/oauth2 v0.34.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/term v0.41.0 // indirect
-	golang.org/x/text v0.35.0 // indirect
+	golang.org/x/term v0.42.0 // indirect
+	golang.org/x/text v0.36.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.4.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260120221211-b8f7ae30c516 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/apiextensions-apiserver v0.35.1 // indirect
-	k8s.io/apiserver v0.35.1 // indirect
-	k8s.io/component-base v0.35.1 // indirect
-	k8s.io/controller-manager v0.35.1 // indirect
-	k8s.io/csi-translation-lib v0.35.1 // indirect
+	k8s.io/apiextensions-apiserver v0.35.3 // indirect
+	k8s.io/apiserver v0.35.3 // indirect
+	k8s.io/component-base v0.35.3 // indirect
+	k8s.io/controller-manager v0.35.3 // indirect
+	k8s.io/csi-translation-lib v0.35.3 // indirect
 	k8s.io/kube-openapi v0.0.0-20250910181357-589584f1c912 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect

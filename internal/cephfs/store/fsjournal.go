@@ -28,6 +28,7 @@ import (
 	cerrors "github.com/ceph/ceph-csi/internal/cephfs/errors"
 	"github.com/ceph/ceph-csi/internal/journal"
 	"github.com/ceph/ceph-csi/internal/util"
+	"github.com/ceph/ceph-csi/internal/util/k8s"
 	"github.com/ceph/ceph-csi/internal/util/log"
 	"github.com/ceph/ceph-csi/pkg/util/crypto"
 )
@@ -84,7 +85,6 @@ func CheckVolExists(ctx context.Context,
 	sID *SnapshotIdentifier,
 	cr *util.Credentials,
 	clusterName string,
-	setMetadata bool,
 ) (*VolumeIdentifier, error) {
 	var vid VolumeIdentifier
 	j, err := VolJournal.Connect(volOptions.Monitors, volOptions.RadosNamespace, cr)
@@ -107,7 +107,7 @@ func CheckVolExists(ctx context.Context,
 	vid.FsSubvolName = imageData.ImageAttributes.ImageName
 	volOptions.VolID = vid.FsSubvolName
 
-	vol := core.NewSubVolume(volOptions.conn, &volOptions.SubVolume, volOptions.ClusterID, clusterName, setMetadata)
+	vol := core.NewSubVolume(volOptions.conn, &volOptions.SubVolume, volOptions.ClusterID, clusterName)
 	if (sID != nil || pvID != nil) && imageData.ImageAttributes.BackingSnapshotID == "" {
 		cloneState, cloneStateErr := vol.GetCloneState(ctx)
 		if cloneStateErr != nil {
@@ -406,7 +406,6 @@ func CheckSnapExists(
 	volOptions *VolumeOptions,
 	snap *SnapshotOption,
 	clusterName string,
-	setMetadata bool,
 	cr *util.Credentials,
 ) (*SnapshotIdentifier, error) {
 	j, err := SnapJournal.Connect(volOptions.Monitors, volOptions.RadosNamespace, cr)
@@ -430,7 +429,7 @@ func CheckSnapExists(
 	snapID := snapData.ImageAttributes.ImageName
 	sid.FsSnapshotName = snapData.ImageAttributes.ImageName
 	snapClient := core.NewSnapshot(volOptions.conn, snapID,
-		volOptions.ClusterID, clusterName, setMetadata, &volOptions.SubVolume)
+		volOptions.ClusterID, clusterName, &volOptions.SubVolume)
 	snapInfo, err := snapClient.GetSnapshotInfo(ctx)
 	if err != nil {
 		if errors.Is(err, cerrors.ErrSnapNotFound) {
@@ -470,4 +469,57 @@ func CheckSnapExists(
 		snapData.ImageAttributes.RequestName, volOptions.VolID, sid.FsSnapshotName)
 
 	return sid, nil
+}
+
+// SetSubVolCSIMetadata sets CSI metadata (PV/PVC info) on a CephFS subvolume.
+func SetSubVolCSIMetadata(
+	ctx context.Context,
+	volumeAttributes map[string]string,
+	volumeID,
+	pvName,
+	pvcName,
+	pvcNamespace,
+	clusterName string,
+	cr *util.Credentials,
+) error {
+	var vi util.CSIIdentifier
+	if err := vi.DecomposeCSIID(volumeID); err != nil {
+		return fmt.Errorf("%w: error decoding volume ID (%w) (%s)",
+			cerrors.ErrInvalidVolID, err, volumeID)
+	}
+
+	monitors, err := util.Mons(util.CsiConfigFile, vi.ClusterID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch monitor list using clusterID (%s): %w", vi.ClusterID, err)
+	}
+
+	subvolumeGroup, err := util.CephFSSubvolumeGroup(util.CsiConfigFile, vi.ClusterID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch subvolumegroup using clusterID (%s): %w", vi.ClusterID, err)
+	}
+
+	conn := &util.ClusterConnection{}
+	if err = conn.Connect(monitors, cr); err != nil {
+		return fmt.Errorf("failed to connect to cluster: %w", err)
+	}
+	defer conn.Destroy()
+
+	fsName := volumeAttributes["fsName"]
+	subvolName := volumeAttributes["subvolumeName"]
+
+	subVol := &core.SubVolume{
+		VolID:          subvolName,
+		FsName:         fsName,
+		SubvolumeGroup: subvolumeGroup,
+	}
+	volClient := core.NewSubVolume(conn, subVol, vi.ClusterID, clusterName)
+	parameters := k8s.PrepareVolumeMetadata(pvcName, pvcNamespace, pvName)
+	if err = volClient.SetAllMetadata(parameters); err != nil {
+		return fmt.Errorf("failed to set metadata on subvolume %s: %w", subvolName, err)
+	}
+
+	log.DebugLog(ctx, "cephfs: successfully set metadata on subvolume %s for PV %s",
+		subvolName, pvName)
+
+	return nil
 }

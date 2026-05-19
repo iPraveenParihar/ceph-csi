@@ -207,6 +207,7 @@ func (fs *cephfsDriver) Run(conf *util.Config) {
 	}
 	server.Start(conf.Endpoint, srv, csicommon.MiddlewareServerOptionConfig{
 		LogSlowOpInterval: conf.LogSlowOpInterval,
+		SlowGRPCRestart:   util.IsFeatureGateEnabled(util.SlowGRPCRestart),
 	})
 
 	if conf.EnableProfiling {
@@ -240,6 +241,7 @@ func (fs *cephfsDriver) setupCSIAddonsServer(conf *util.Config) error {
 	// start the server, this does not block, it runs a new go-routine
 	err = fs.cas.Start(csicommon.MiddlewareServerOptionConfig{
 		LogSlowOpInterval: conf.LogSlowOpInterval,
+		SlowGRPCRestart:   util.IsFeatureGateEnabled(util.SlowGRPCRestart),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to start CSI-Addons server: %w", err)

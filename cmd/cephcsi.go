@@ -158,6 +158,10 @@ func init() {
 	// CSI-Addons configuration
 	flag.StringVar(&conf.CSIAddonsEndpoint, "csi-addons-endpoint", "unix:///tmp/csi-addons.sock", "CSI-Addons endpoint")
 
+	// Feature gates
+	flag.StringVar(&conf.FeatureGates, "feature-gates", "",
+		"comma-separated list of feature gates (e.g., SlowGRPCRestart=false)")
+
 	klog.InitFlags(nil)
 	if err := flag.Set("logtostderr", "true"); err != nil {
 		klog.Exitf("failed to set logtostderr flag: %v", err)
@@ -205,6 +209,10 @@ func main() {
 		os.Exit(0)
 	}
 	log.DefaultLog("Driver version: %s and Git version: %s", util.DriverVersion, util.GitCommit)
+
+	if err := util.InitFeatureGates(conf.FeatureGates); err != nil {
+		logAndExit(err.Error())
+	}
 
 	if conf.Vtype == "" {
 		logAndExit("driver type not specified")
@@ -272,8 +280,8 @@ func main() {
 			DriverName:  dname,
 			Namespace:   conf.DriverNamespace,
 			ClusterName: conf.ClusterName,
-			InstanceID:  conf.InstanceID,
 			SetMetadata: conf.SetMetadata,
+			InstanceID:  conf.InstanceID,
 		}
 		// initialize all controllers before starting.
 		initControllers()

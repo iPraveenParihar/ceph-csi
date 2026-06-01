@@ -280,8 +280,8 @@ func main() {
 			DriverName:  dname,
 			Namespace:   conf.DriverNamespace,
 			ClusterName: conf.ClusterName,
-			SetMetadata: conf.SetMetadata,
 			InstanceID:  conf.InstanceID,
+			SetMetadata: conf.SetMetadata,
 		}
 		// initialize all controllers before starting.
 		initControllers()

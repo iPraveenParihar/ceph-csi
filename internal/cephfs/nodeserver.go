@@ -910,8 +910,15 @@ func (ns *NodeServer) NodeGetVolumeStats(
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
+	volumeID := req.GetVolumeId()
+
+	if acquired := ns.VolumeLocks.TryAcquire(targetPath); !acquired {
+		return nil, status.Errorf(codes.Aborted, util.TargetPathOperationAlreadyExistsFmt, targetPath)
+	}
+	defer ns.VolumeLocks.Release(targetPath)
+
 	// health check first, return without stats if unhealthy
-	healthy, msg := ns.healthChecker.IsHealthy(req.GetVolumeId(), targetPath)
+	healthy, msg := ns.healthChecker.IsHealthy(volumeID, targetPath)
 
 	// If healthy and an error is returned, it means that the checker was not
 	// started. This could happen when the node-plugin was restarted and the

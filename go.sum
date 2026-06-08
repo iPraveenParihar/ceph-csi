@@ -984,8 +984,8 @@ github.com/prometheus/common v0.66.1 h1:h5E0h5/Y8niHc5DlaLlWLArTQI7tMrsfQjHV+d9Z
 github.com/prometheus/common v0.66.1/go.mod h1:gcaUsgf3KfRSwHY4dIMXLPV0K/Wg1oZ8+SbZk/HH/dA=
 github.com/prometheus/procfs v0.16.1 h1:hZ15bTNuirocR6u0JZ6BAHHmwS1p8B4P6MRqxtzMyRg=
 github.com/prometheus/procfs v0.16.1/go.mod h1:teAbpZRB1iIAJYREa1LsoWUXykVXA1KlTmWl8x/U+Is=
-github.com/red-hat-storage/go-ceph v0.32.1-0.20260109062642-357605f36918 h1:VKejmX760mMNppaAzYc+Svo+VAiTHtxCzEjFpPdTtxc=
-github.com/red-hat-storage/go-ceph v0.32.1-0.20260109062642-357605f36918/go.mod h1:3y2tOlITlyuVFhy8v6PpCEfjMwKPfXJiH0/2hKZZQRE=
+github.com/red-hat-storage/go-ceph v0.32.1-0.20260112083340-565356f9872c h1:JlGqLIzSWyA6tA6L/oHZTPx6DFPDjTDRNtmzMw7/sYY=
+github.com/red-hat-storage/go-ceph v0.32.1-0.20260112083340-565356f9872c/go.mod h1:bXEbx2U9V/FNepxgJ1bnQtKaKeSnGr1MNFAMvz3NDkc=
 github.com/rogpeppe/fastuuid v1.2.0/go.mod h1:jVj6XXZzXRy/MSR5jhDC/2q6DgLz+nrA6LYCDYWNEvQ=
 github.com/rogpeppe/go-internal v1.3.0/go.mod h1:M8bDsm7K2OlrFYOpmOWEs/qY81heoFRclV5y23lUDJ4=
 github.com/rogpeppe/go-internal v1.6.1/go.mod h1:xXDCJY+GAPziupqXw64V24skbSoqbTEfhy4qGm1nDQc=

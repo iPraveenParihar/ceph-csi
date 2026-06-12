@@ -209,7 +209,7 @@ github.com/ceph/ceph-csi/api/deploy/ocp
 # github.com/ceph/ceph-nvmeof/lib/go/nvmeof v0.0.0-20251105130956-2cc225b176fc
 ## explicit; go 1.24.4
 github.com/ceph/ceph-nvmeof/lib/go/nvmeof
-# github.com/ceph/go-ceph v0.36.0 => github.com/red-hat-storage/go-ceph v0.32.1-0.20260109062642-357605f36918
+# github.com/ceph/go-ceph v0.36.0 => github.com/red-hat-storage/go-ceph v0.32.1-0.20260112083340-565356f9872c
 ## explicit; go 1.24.0
 github.com/ceph/go-ceph/cephfs
 github.com/ceph/go-ceph/cephfs/admin
@@ -1274,5 +1274,5 @@ sigs.k8s.io/structured-merge-diff/v6/value
 ## explicit; go 1.22
 sigs.k8s.io/yaml
 # github.com/ceph/ceph-csi/api => ./api
-# github.com/ceph/go-ceph => github.com/red-hat-storage/go-ceph v0.32.1-0.20260109062642-357605f36918
+# github.com/ceph/go-ceph => github.com/red-hat-storage/go-ceph v0.32.1-0.20260112083340-565356f9872c
 # k8s.io/client-go => k8s.io/client-go v0.34.2

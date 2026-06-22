@@ -32,7 +32,7 @@ require (
 	go.uber.org/automaxprocs v1.6.0
 	golang.org/x/crypto v0.50.0
 	golang.org/x/net v0.53.0
-	golang.org/x/sys v0.43.0
+	golang.org/x/sys v0.44.0
 	google.golang.org/grpc v1.80.0
 	google.golang.org/protobuf v1.36.11
 	k8s.io/api v0.35.3
@@ -44,7 +44,7 @@ require (
 	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4
 )
 
-replace github.com/ceph/go-ceph => github.com/red-hat-storage/go-ceph v0.32.1-0.20260325063538-172017ca4866
+replace github.com/ceph/go-ceph => github.com/red-hat-storage/go-ceph v0.32.1-0.20260610035056-ec96dbfe61e2
 
 require (
 	// sigs.k8s.io/controller-runtime wants this version, it gets replaced below

@@ -24,6 +24,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	librbd "github.com/ceph/go-ceph/rbd"
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -50,6 +51,13 @@ type NodeServer struct {
 	// A map storing all volumes with ongoing operations so that additional operations
 	// for that same volume (as defined by VolumeID) return an Aborted error
 	VolumeLocks *util.IDLocker
+
+	// chainSupportsDiffIterate caches whether a volume's full image chain
+	// supports DiffIterate (object-map, fast-diff and exclusive-lock enabled
+	// on every image). Populated on first blockNodeGetVolumeStats call,
+	// evicted on NodeUnstageVolume. This avoids repeated Ceph round-trips
+	// since kubelet polls NodeGetVolumeStats every ~2 minutes.
+	chainSupportsDiffIterate sync.Map
 
 	// ext4HasPrezeroedSupport indicates whether the ext4 filesystem has support for pre-zeroed blocks.
 	ext4HasPrezeroedSupport featureFlag
@@ -1194,6 +1202,8 @@ func (ns *NodeServer) NodeUnstageVolume(
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
+	ns.chainSupportsDiffIterate.Delete(volID)
+
 	return &csi.NodeUnstageVolumeResponse{}, nil
 }
 
@@ -1572,6 +1582,12 @@ func (ns *NodeServer) blockNodeGetVolumeStats(
 		return getBlockMetrics(ctx, targetPath)
 	}
 
+	if cached, ok := ns.chainSupportsDiffIterate.Load(volumeId); ok {
+		if !cached.(bool) {
+			return getBlockMetrics(ctx, targetPath)
+		}
+	}
+
 	secrets, err := k8s.GetSecret(secretName, secretNamespace)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to get secret from k8s: %v", err)
@@ -1597,6 +1613,7 @@ func (ns *NodeServer) blockNodeGetVolumeStats(
 		return nil, status.Errorf(codes.Internal, "failed to check required features on image chain %s: %v",
 			rv, err)
 	}
+	ns.chainSupportsDiffIterate.Store(volumeId, hasRequiredFeatures)
 	if !hasRequiredFeatures {
 		log.DebugLog(ctx, "image %s or a parent lacks required features (object-map, fast-diff, exclusive-lock), skipping DiffIterate", rv)
 

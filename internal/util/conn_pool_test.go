@@ -146,6 +146,27 @@ func TestConnPool(t *testing.T) {
 		}
 	})
 
+	t.Run("cleanupConnections", func(t *testing.T) {
+		kf := t.TempDir() + "/cleanup_connections.keyfile"
+		if wErr := os.WriteFile(kf, []byte("key"), 0o600); wErr != nil {
+			t.Fatalf("failed to create keyfile: %v", wErr)
+		}
+		// CleanupConnections operates on the package-global connPool.
+		c, _, fErr := connPool.fakeGet("mon", "user", kf)
+		if fErr != nil {
+			t.Fatalf("fakeGet failed: %v", fErr)
+		}
+		_ = c
+		if len(connPool.conns) != 1 {
+			t.Fatalf("expected 1 conn, got %d", len(connPool.conns))
+		}
+		// CleanupConnections must not panic even with active users.
+		CleanupConnections()
+		if len(connPool.conns) != 0 {
+			t.Errorf("CleanupConnections should have removed all conns, got %d", len(connPool.conns))
+		}
+	})
+
 	// there is still one conn in cp.conns after "doubleFakeGet"
 	t.Run("garbageCollection", func(t *testing.T) {
 		// timeout has not occurred yet, so number of conns in the list should stay the same

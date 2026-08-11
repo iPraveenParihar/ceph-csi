@@ -77,6 +77,21 @@ func (cp *ConnPool) Destroy() {
 	}
 }
 
+// ForceDestroy stops the garbage collector and destroys all connections
+// regardless of whether they have active users. This is intended for
+// unclean shutdown paths (e.g. stuck gRPC restart) where the process is
+// about to exit and in-flight operations cannot complete anyway.
+func (cp *ConnPool) ForceDestroy() {
+	cp.timer.Stop()
+	cp.lock.Lock()
+	defer cp.lock.Unlock()
+
+	for key, ce := range cp.conns {
+		ce.destroy()
+		delete(cp.conns, key)
+	}
+}
+
 // Get returns a rados.Conn for the given arguments. Creates a new rados.Conn in
 // case there is none. Use the returned rados.Conn to reduce the reference
 // count with ConnPool.Put(unique).

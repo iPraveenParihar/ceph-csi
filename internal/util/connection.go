@@ -161,6 +161,14 @@ func (cc *ClusterConnection) GetNFSAdmin() (*nfs.Admin, error) {
 	return nfs.NewFromConn(cc.conn), nil
 }
 
+// CleanupConnections forcefully closes all pooled Ceph connections.
+// It is meant for unclean shutdown paths where the process is about
+// to exit and lingering RADOS sessions would cause the cluster to
+// blocklist the client IP.
+func CleanupConnections() {
+	connPool.ForceDestroy()
+}
+
 // GetAddrs returns the addresses of the RADOS session,
 // suitable for blocklisting.
 func (cc *ClusterConnection) GetAddrs() (string, error) {

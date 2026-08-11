@@ -146,6 +146,27 @@ func TestConnPool(t *testing.T) {
 		}
 	})
 
+	t.Run("forceDestroy", func(t *testing.T) {
+		fcp := NewConnPool(interval, expiry)
+		kf := t.TempDir() + "/force_destroy.keyfile"
+		if wErr := os.WriteFile(kf, []byte("key"), 0o600); wErr != nil {
+			t.Fatalf("failed to create keyfile: %v", wErr)
+		}
+		c, _, fErr := fcp.fakeGet("mon", "user", kf)
+		if fErr != nil {
+			t.Fatalf("fakeGet failed: %v", fErr)
+		}
+		_ = c
+		if len(fcp.conns) != 1 {
+			t.Fatalf("expected 1 conn, got %d", len(fcp.conns))
+		}
+		// ForceDestroy must not panic even with active users
+		fcp.ForceDestroy()
+		if len(fcp.conns) != 0 {
+			t.Errorf("ForceDestroy should have removed all conns, got %d", len(fcp.conns))
+		}
+	})
+
 	// there is still one conn in cp.conns after "doubleFakeGet"
 	t.Run("garbageCollection", func(t *testing.T) {
 		// timeout has not occurred yet, so number of conns in the list should stay the same

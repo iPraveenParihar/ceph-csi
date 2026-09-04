@@ -831,6 +831,7 @@ func (ri *rbdImage) removeImageFromTrash(ctx context.Context) error {
 // DeleteTempImage deletes the temporary image created for volume datasource.
 func (rv *rbdVolume) DeleteTempImage(ctx context.Context) error {
 	tempClone := rv.generateTempClone()
+	defer tempClone.Destroy(ctx)
 	snap := &rbdSnapshot{}
 	defer snap.Destroy(ctx)
 
@@ -876,6 +877,7 @@ func (ri *rbdImage) getCloneDepth(ctx context.Context) (uint, error) {
 	vol.RbdImageName = ri.RbdImageName
 	vol.RadosNamespace = ri.RadosNamespace
 	vol.conn = ri.conn.Copy()
+	defer vol.Destroy(ctx)
 
 	for {
 		if vol.RbdImageName == "" {
@@ -1066,6 +1068,7 @@ func (ri *rbdImage) checkImageChainHasFeature(ctx context.Context, feature uint6
 	rbdImg.Monitors = ri.Monitors
 	rbdImg.RbdImageName = ri.RbdImageName
 	rbdImg.conn = ri.conn.Copy()
+	defer rbdImg.Destroy(ctx)
 
 	for {
 		if rbdImg.RbdImageName == "" {

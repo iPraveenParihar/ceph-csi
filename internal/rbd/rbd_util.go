@@ -566,6 +566,27 @@ func (ri *rbdImage) open() (*librbd.Image, error) {
 	return image, nil
 }
 
+// openReadOnly opens the rbdImage in read-only mode. This should be used when
+// the caller only needs to read from the image as it avoids any interaction
+// with the exclusive lock on the image.
+func (ri *rbdImage) openReadOnly() (*librbd.Image, error) {
+	err := ri.openIoctx()
+	if err != nil {
+		return nil, err
+	}
+
+	image, err := librbd.OpenImageReadOnly(ri.ioctx, ri.RbdImageName, librbd.NoSnapshot)
+	if err != nil {
+		if errors.Is(err, librbd.ErrNotFound) {
+			err = fmt.Errorf("Failed as %w (internal %w)", rbderrors.ErrImageNotFound, err)
+		}
+
+		return nil, err
+	}
+
+	return image, nil
+}
+
 // isInUse checks if there is a watcher on the image. It returns true if there
 // is a watcher on the image, otherwise returns false.
 // In case of mirroring, the image should be primary to check watchers if the
@@ -948,7 +969,7 @@ func (ri *rbdImage) flattenRbdImage(
 }
 
 func (ri *rbdImage) getParentName() (string, error) {
-	rbdImage, err := ri.open()
+	rbdImage, err := ri.openReadOnly()
 	if err != nil {
 		return "", err
 	}
@@ -1815,7 +1836,7 @@ ErrImageNotFound if provided image is not found, and ErrSnapNotFound if
 provided snap is not found in the images snapshot list.
 */
 func (ri *rbdImage) checkSnapExists(rbdSnap *rbdSnapshot) error {
-	image, err := ri.open()
+	image, err := ri.openReadOnly()
 	if err != nil {
 		return err
 	}
@@ -2113,7 +2134,7 @@ type snapAndChildrenInfo struct {
 // listSnapAndChildren returns list of snapshot names, volume snapshot images and
 // child temp clone images. Only child images which are not in trash are returned.
 func (ri *rbdImage) listSnapAndChildren() (*snapAndChildrenInfo, error) {
-	image, err := ri.open()
+	image, err := ri.openReadOnly()
 	if err != nil {
 		return nil, err
 	}

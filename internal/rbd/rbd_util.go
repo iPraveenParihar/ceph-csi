@@ -1811,6 +1811,9 @@ func (ri *rbdImage) getParent() (*rbdImage, error) {
 
 	err = parentImage.getImageInfo()
 	if err != nil {
+		parentImage.conn.Destroy()
+		parentImage.conn = nil
+
 		return nil, err
 	}
 

@@ -98,10 +98,10 @@ func handleFlags() {
 	// different jobs for CephFS and RBD. With a dedicated testNFS
 	// variable, it is still possible to only run the NFS tests, when both
 	// CephFS and RBD are disabled.
-	if testCephFS {
-		testNFS = testCephFS
-		deployNFS = deployCephFS
-	}
+	// if testCephFS {
+	// 	testNFS = testCephFS
+	// 	deployNFS = deployCephFS
+	// }
 
 	if testNVMeoF {
 		deployNVMeoF = true

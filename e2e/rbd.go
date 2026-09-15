@@ -377,9 +377,6 @@ var _ = Describe("RBD", func() {
 		if err != nil {
 			logAndFail("failed to create configmap: %v", err)
 		}
-		if deployRBD {
-			deployRBDPlugin()
-		}
 		err = createRBDStorageClass(f.ClientSet, f, defaultSCName, nil, nil, deletePolicy)
 		if err != nil {
 			logAndFail("failed to create storageclass: %v", err)
@@ -482,9 +479,6 @@ var _ = Describe("RBD", func() {
 		// deleteResource(rbdExamplePath + "snapshotclass.yaml")
 		if !skipVault {
 			deleteVault()
-		}
-		if deployRBD {
-			deleteRBDPlugin()
 		}
 		// No need to delete the namespace if ceph-csi is deployed via operator.
 		if cephCSINamespace != defaultNs && !operatorDeployment {

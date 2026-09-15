@@ -159,9 +159,7 @@ var _ = Describe("CephFS Upgrade Testing", func() {
 		if !skipVault {
 			deleteVault()
 		}
-		if deployCephFS {
-			deleteCephfsPlugin()
-		}
+		deleteCephfsPlugin()
 		// No need to delete the namespace if ceph-csi is deployed via operator.
 		if cephCSINamespace != defaultNs && !operatorDeployment {
 			err = deleteNamespace(c, cephCSINamespace)

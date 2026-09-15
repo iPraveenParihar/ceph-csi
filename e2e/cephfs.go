@@ -218,9 +218,6 @@ var _ = Describe(cephfsType, func() {
 		if err != nil {
 			logAndFail("failed to create configmap: %v", err)
 		}
-		if deployCephFS {
-			deployCephfsPlugin()
-		}
 		// create cephFS provisioner secret
 		key, err := createCephUser(f, keyringCephFSProvisionerUsername, cephFSProvisionerCaps())
 		if err != nil {
@@ -312,9 +309,6 @@ var _ = Describe(cephfsType, func() {
 			logAndFail("failed to delete subvolumegroup %s: %v", subvolumegroup, err)
 		}
 
-		if deployCephFS {
-			deleteCephfsPlugin()
-		}
 		// No need to delete the namespace if ceph-csi is deployed via operator.
 		if cephCSINamespace != defaultNs && !operatorDeployment {
 			err = deleteNamespace(c, cephCSINamespace)

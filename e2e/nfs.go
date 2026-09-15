@@ -41,10 +41,6 @@ var (
 	// nfsWithSlowTests enables negative testing (pod creation expected to fail)
 	nfsWithSlowTests = false
 
-	nfsProvisioner     = "csi-nfsplugin-provisioner.yaml"
-	nfsProvisionerRBAC = "csi-provisioner-rbac.yaml"
-	nfsNodePlugin      = "csi-nfsplugin.yaml"
-	nfsNodePluginRBAC  = "csi-nodeplugin-rbac.yaml"
 	nfsRookCephNFS     = "rook-nfs.yaml"
 	nfsDeploymentName  = "csi-nfsplugin-provisioner"
 	nfsDeamonSetName   = "csi-nfsplugin"
@@ -64,26 +60,6 @@ var (
 
 type NFSDeployment struct {
 	DriverInfo
-}
-
-func deployNFSPlugin() {
-	// delete objects deployed by rook
-
-	err := deleteResource(nfsDirPath + nfsProvisionerRBAC)
-	if err != nil {
-		logAndFail("failed to delete provisioner rbac %s: %v", nfsDirPath+nfsProvisionerRBAC, err)
-	}
-
-	err = deleteResource(nfsDirPath + nfsNodePluginRBAC)
-	if err != nil {
-		logAndFail("failed to delete nodeplugin rbac %s: %v", nfsDirPath+nfsNodePluginRBAC, err)
-	}
-
-	createORDeleteNFSResources(kubectlCreate)
-}
-
-func deleteNFSPlugin() {
-	createORDeleteNFSResources(kubectlDelete)
 }
 
 func createNFSPool(f *framework.Framework) {
@@ -106,54 +82,6 @@ func createNFSPool(f *framework.Framework) {
 		err := r.Do(kubectlCreate)
 		if err != nil {
 			logAndFail("failed to %s resource: %v", kubectlCreate, err)
-		}
-	}
-}
-
-func createORDeleteNFSResources(action kubectlAction) {
-	cephConfigFile := getConfigFile(cephConfconfigMap, deployPath, examplePath)
-	resources := []ResourceDeployer{
-		// shared resources
-		&yamlResource{
-			filename:     nfsDirPath + csiDriverObject,
-			allowMissing: true,
-		},
-		&yamlResource{
-			filename:     cephConfigFile,
-			allowMissing: true,
-		},
-		// dependencies for provisioner
-		&yamlResourceNamespaced{
-			filename:  nfsDirPath + nfsProvisionerRBAC,
-			namespace: cephCSINamespace,
-		},
-		// the provisioner itself
-		&yamlResourceNamespaced{
-			filename:   nfsDirPath + nfsProvisioner,
-			namespace:  cephCSINamespace,
-			oneReplica: true,
-		},
-		// dependencies for the node-plugin
-		&yamlResourceNamespaced{
-			filename:  nfsDirPath + nfsNodePluginRBAC,
-			namespace: cephCSINamespace,
-		},
-		// the node-plugin itself
-		&yamlResourceNamespaced{
-			filename:  nfsDirPath + nfsNodePlugin,
-			namespace: cephCSINamespace,
-		},
-		// NFS server deployment
-		&yamlResourceNamespaced{
-			filename:  nfsExamplePath + nfsRookCephNFS,
-			namespace: rookNamespace,
-		},
-	}
-
-	for _, r := range resources {
-		err := r.Do(action)
-		if err != nil {
-			logAndFail("failed to %s resource: %v", action, err)
 		}
 	}
 }
@@ -389,9 +317,6 @@ var _ = Describe("nfs", func() {
 		if err != nil {
 			logAndFail("failed to create configmap: %v", err)
 		}
-		if deployNFS {
-			deployNFSPlugin()
-		}
 		// create nfs provisioner secret
 		key, err := createCephUser(f, keyringCephFSProvisionerUsername, cephFSProvisionerCaps())
 		if err != nil {
@@ -460,9 +385,6 @@ var _ = Describe("nfs", func() {
 			logAndFail("failed to delete subvolumegroup %s: %v", subvolumegroup, err)
 		}
 
-		if deployNFS {
-			deleteNFSPlugin()
-		}
 		// No need to delete the namespace if ceph-csi is deployed via operator.
 		if cephCSINamespace != defaultNs && !operatorDeployment {
 			err = deleteNamespace(c, cephCSINamespace)

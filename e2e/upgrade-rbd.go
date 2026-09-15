@@ -163,9 +163,7 @@ var _ = Describe("RBD Upgrade Testing", func() {
 		if !skipVault {
 			deleteVault()
 		}
-		if deployRBD {
-			deleteRBDPlugin()
-		}
+		deleteRBDPlugin()
 		// No need to delete the namespace if ceph-csi is deployed via operator.
 		if cephCSINamespace != defaultNs && !operatorDeployment {
 			err = deleteNamespace(c, cephCSINamespace)

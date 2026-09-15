@@ -79,9 +79,6 @@ const (
 var (
 	// cli flags.
 	deployTimeout      int
-	deployCephFS       bool
-	deployRBD          bool
-	deployNFS          bool
 	deployNVMeoF       bool
 	testCephFS         bool
 	testCephFSFscrypt  bool

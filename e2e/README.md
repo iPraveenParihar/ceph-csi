@@ -93,8 +93,6 @@ available while running tests:
 | flag              | description                                                                                       |
 | ----------------- | ------------------------------------------------------------------------------------------------- |
 | deploy-timeout    | Timeout to wait for created kubernetes resources (default: 10 minutes)                            |
-| deploy-cephfs     | Deploy cephFS CSI driver as part of E2E (default: true)                                           |
-| deploy-rbd        | Deploy rbd CSI driver as part of E2E (default: true)                                              |
 | test-cephfs       | Test cephFS CSI driver as part of E2E (default: true)                                             |
 | upgrade-testing   | Perform upgrade testing (default: false)                                                          |
 | upgrade-version   | Target version for upgrade testing (default: "v3.5.1")                                            |
@@ -156,7 +154,6 @@ cd e2e && ../e2e.test -test.v -ginkgo.v \
   --deploy-timeout=10 \
   --test-rbd=true --test-cephfs=true \
   --test-nfs=true --test-nvmeof=false \
-  --deploy-rbd=true --deploy-cephfs=true \
   --operator-deployment \
   --skip-vault=true
 ```

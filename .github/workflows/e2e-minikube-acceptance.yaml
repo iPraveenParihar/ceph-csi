@@ -114,8 +114,6 @@ jobs:
             --test-cephfs=true \
             --test-nfs=true \
             --test-nvmeof=false \
-            --deploy-rbd=false \
-            --deploy-cephfs=false \
             --operator-deployment \
             --skip-vault=true
 

@@ -492,7 +492,10 @@ func (cs *ControllerServer) CreateVolume(
 		return nil, err
 	}
 
-	err = flattenParentImage(ctx, parentVol, rbdSnap, cr)
+	// Pass the reader-only state so snapshot restores can preserve their parent
+	// chain for rbd diff changed-block tracking during incremental backups.
+	isReaderOnly := csicommon.AreAllCapabilitiesReaderOnly(req.GetVolumeCapabilities())
+	err = flattenParentImage(ctx, parentVol, rbdSnap, cr, isReaderOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -543,6 +546,7 @@ func flattenParentImage(
 	rbdVol *rbdVolume,
 	rbdSnap *rbdSnapshot,
 	cr *util.Credentials,
+	isReaderOnly bool,
 ) error {
 	// flatten the image's parent before the reservation to avoid
 	// stale entries in post creation if we return ABORT error and the
@@ -588,6 +592,17 @@ func flattenParentImage(
 				rbdSnap.Destroy(ctx)
 			}
 		}()
+		// Avoid flattening ROX snapshot restores so rbd diff can use the parent
+		// chain to track changed blocks for incremental backups.
+		if isReaderOnly {
+			log.DebugLog(ctx,
+				"rbd: skipping flatten for read-only snapshot restore %q to preserve the parent chain "+
+					"for incremental backup changed-block tracking",
+				rbdSnap.RbdSnapName,
+			)
+
+			return nil
+		}
 
 		// choosing 1, since restore from snapshot adds one depth.
 		const depthToAvoidFlatten = 1
@@ -598,7 +613,11 @@ func flattenParentImage(
 			softLimit = rbdSoftMaxCloneDepth - depthToAvoidFlatten
 		}
 
-		err = rbdSnap.flattenRbdImage(ctx, false, hardLimit, softLimit)
+		snapVol := rbdSnap.toVolume()
+		snapVol.conn = rbdSnap.conn.Copy()
+		defer snapVol.Destroy(ctx)
+
+		err = snapVol.flattenRbdImage(ctx, false, hardLimit, softLimit)
 		if err != nil {
 			return getGRPCErrorForCreateVolume(err)
 		}

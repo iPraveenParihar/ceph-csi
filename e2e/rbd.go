@@ -4608,6 +4608,13 @@ var _ = Describe("RBD", func() {
 		})
 
 		It(
+			"validate ROX restore skips flatten and RW restore flattens with trashed parents",
+			func() {
+				validateCloneDepthFlattenWithTrashedParents(f)
+			},
+		)
+
+		It(
 			"validate PVC mounting if snapshot and parent PVC are deleted chained with depth 2",
 			func() {
 				snapChainDepth := 2

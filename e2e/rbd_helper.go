@@ -1237,6 +1237,122 @@ func listRBDImagesInTrash(f *framework.Framework, poolName string) ([]trashInfo,
 	return trashInfos, nil
 }
 
+func waitForRBDImageInTrash(f *framework.Framework, poolName, imageName string, t int) error {
+	var errReason error
+	timeout := time.Duration(t) * time.Minute
+	err := wait.PollUntilContextTimeout(context.TODO(), poll, timeout, true, func(_ context.Context) (bool, error) {
+		imagesInTrash, err := listRBDImagesInTrash(f, poolName)
+		if err != nil {
+			return false, err
+		}
+		for _, image := range imagesInTrash {
+			if image.Name == imageName {
+				return true, nil
+			}
+		}
+		errReason = fmt.Errorf("image %q not found in trash. Image details %v", imageName, imagesInTrash)
+		framework.Logf("%v", errReason.Error())
+
+		return false, nil
+	})
+
+	if wait.Interrupted(err) {
+		err = errReason
+	}
+
+	return err
+}
+
+func waitForRBDImageFlattened(f *framework.Framework, poolName, imageName string, t int) error {
+	var errReason error
+	timeout := time.Duration(t) * time.Minute
+	err := wait.PollUntilContextTimeout(context.TODO(), poll, timeout, true, func(_ context.Context) (bool, error) {
+		parent, hasParent, err := getRBDImageParent(f, poolName, imageName)
+		if err != nil {
+			return false, err
+		}
+		if !hasParent {
+			return true, nil
+		}
+
+		errReason = fmt.Errorf("image %q still has parent %s", imageName, string(parent))
+		framework.Logf("%v", errReason.Error())
+
+		return false, nil
+	})
+
+	if wait.Interrupted(err) {
+		err = errReason
+	}
+
+	return err
+}
+
+func ensureRBDImageHasParent(f *framework.Framework, poolName, imageName string, t int) error {
+	var errReason error
+	timeout := time.Duration(t) * time.Minute
+	err := wait.PollUntilContextTimeout(context.TODO(), poll, timeout, true, func(_ context.Context) (bool, error) {
+		_, hasParent, err := getRBDImageParent(f, poolName, imageName)
+		if err != nil {
+			return false, err
+		}
+		if !hasParent {
+			errReason = fmt.Errorf("image %q no longer has a parent", imageName)
+
+			return true, nil
+		}
+
+		return false, nil
+	})
+
+	if errReason != nil {
+		return errReason
+	}
+	if wait.Interrupted(err) {
+		return nil
+	}
+
+	return err
+}
+
+func getRBDImageParent(
+	f *framework.Framework,
+	poolName,
+	imageName string,
+) (json.RawMessage, bool, error) {
+	imgInfoStr, err := getImageInfo(f, imageName, poolName)
+	if err != nil {
+		return nil, false, err
+	}
+
+	imgInfo := map[string]json.RawMessage{}
+	err = json.Unmarshal([]byte(imgInfoStr), &imgInfo)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to parse rbd image info for %q: %w", imageName, err)
+	}
+	parent, ok := imgInfo["parent"]
+	if !ok || string(parent) == "null" || string(parent) == `""` {
+		return parent, false, nil
+	}
+
+	return parent, true, nil
+}
+
+func getRBDSnapshotImageName(namespace, snapName string) (string, error) {
+	snapHandle, err := getSnapshotHandle(namespace, snapName)
+	if err != nil {
+		return "", err
+	}
+
+	snapIDRegex := regexp.MustCompile(`(\w+\-?){5}$`)
+	snapID := snapIDRegex.FindString(snapHandle)
+	if snapID == "" {
+		return "", fmt.Errorf("failed to get image ID from snapshot handle %q", snapHandle)
+	}
+
+	return "csi-snap-" + snapID, nil
+}
+
 func waitToRemoveImagesFromTrash(f *framework.Framework, poolName string, t int) error {
 	var errReason error
 	timeout := time.Duration(t) * time.Minute

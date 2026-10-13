@@ -173,7 +173,7 @@ github.com/aws/aws-sdk-go-v2/service/internal/presigned-url
 github.com/aws/aws-sdk-go-v2/service/sts
 github.com/aws/aws-sdk-go-v2/service/sts/internal/endpoints
 github.com/aws/aws-sdk-go-v2/service/sts/types
-# github.com/aws/smithy-go v1.28.1
+# github.com/aws/smithy-go v1.28.2
 ## explicit; go 1.24
 github.com/aws/smithy-go
 github.com/aws/smithy-go/auth
@@ -219,8 +219,8 @@ github.com/ceph/ceph-csi/api/deploy/ocp
 # github.com/ceph/ceph-nvmeof/lib/go/nvmeof v0.0.0-20260706125253-734ddd0a44b2
 ## explicit; go 1.25.0
 github.com/ceph/ceph-nvmeof/lib/go/nvmeof
-# github.com/ceph/go-ceph v0.41.0
-## explicit; go 1.25.0
+# github.com/ceph/go-ceph v0.41.0 => github.com/Rakshith-R/go-ceph v0.11.1-0.20261012155400-61041e4f3672
+## explicit; go 1.26.0
 github.com/ceph/go-ceph/cephfs
 github.com/ceph/go-ceph/cephfs/admin
 github.com/ceph/go-ceph/common/admin/manager
@@ -1337,3 +1337,4 @@ sigs.k8s.io/yaml
 # github.com/ceph/ceph-csi/api => ./api
 # k8s.io/client-go => k8s.io/client-go v0.37.0
 # github.com/container-storage-interface/spec => github.com/container-storage-interface/spec v1.12.0
+# github.com/ceph/go-ceph => github.com/Rakshith-R/go-ceph v0.11.1-0.20261012155400-61041e4f3672

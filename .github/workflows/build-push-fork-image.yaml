@@ -1,0 +1,133 @@
+---
+# On-demand build of the cephcsi image from any branch, pushed to the GHCR
+# registry of the repository owner. Intended for use in forks.
+name: build and push image to ghcr
+# yamllint disable-line rule:truthy
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch, tag or commit SHA to build'
+        required: true
+        default: 'devel'
+      repository:
+        description: 'Repository to clone (owner/repo), defaults to this repo'
+        required: false
+        default: ''
+      tag:
+        description: 'Image tag, defaults to the sanitized branch name'
+        required: false
+        default: ''
+      arch:
+        description: 'Architectures to build'
+        required: true
+        default: 'amd64'
+        type: choice
+        options:
+          - amd64
+          - arm64
+          - amd64,arm64
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: Prepare
+    runs-on: ubuntu-latest
+    if: github.repository != 'ceph/ceph-csi'
+    outputs:
+      image: ${{ steps.vars.outputs.image }}
+      tag: ${{ steps.vars.outputs.tag }}
+      repository: ${{ steps.vars.outputs.repository }}
+      matrix: ${{ steps.vars.outputs.matrix }}
+    steps:
+      - name: Compute variables
+        id: vars
+        env:
+          BRANCH: ${{ inputs.branch }}
+          REPO: ${{ inputs.repository }}
+          TAG: ${{ inputs.tag }}
+          ARCH: ${{ inputs.arch }}
+          OWNER: ${{ github.repository_owner }}
+          DEFAULT_REPO: ${{ github.repository }}
+        run: |
+          owner="$(echo "${OWNER}" | tr '[:upper:]' '[:lower:]')"
+          tag="${TAG:-${BRANCH}}"
+          tag="$(echo "${tag}" | sed -e 's|[^A-Za-z0-9_.-]|-|g' | cut -c1-128)"
+          matrix="$(echo "${ARCH}" | jq -Rc 'split(",")')"
+          {
+            echo "image=ghcr.io/${owner}/cephcsi"
+            echo "tag=${tag}"
+            echo "repository=${REPO:-${DEFAULT_REPO}}"
+            echo "matrix=${matrix}"
+          } >> "${GITHUB_OUTPUT}"
+
+  build:
+    name: Build ${{ matrix.arch }}
+    needs: prepare
+    # yamllint disable-line rule:line-length
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        arch: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      IMAGE: ${{ needs.prepare.outputs.image }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      # yamllint disable-line rule:line-length
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          repository: ${{ needs.prepare.outputs.repository }}
+          ref: ${{ inputs.branch }}
+          fetch-depth: 0
+
+      - name: Login to GHCR
+        # yamllint disable-line rule:line-length
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build image
+        run: |
+          make image-cephcsi CONTAINER_CMD=docker GOARCH=${{ matrix.arch }} \
+            ENV_CSI_IMAGE_NAME="${IMAGE}" CSI_IMAGE_VERSION="${TAG}"
+
+      - name: Push image
+        run: |
+          docker tag "${IMAGE}:${TAG}" "${IMAGE}:${TAG}-${{ matrix.arch }}"
+          docker push "${IMAGE}:${TAG}-${{ matrix.arch }}"
+
+  manifest:
+    name: Push manifest
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ${{ needs.prepare.outputs.image }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      ARCHES: ${{ inputs.arch }}
+    steps:
+      - name: Login to GHCR
+        # yamllint disable-line rule:line-length
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push manifest
+        run: |
+          sources=()
+          for arch in ${ARCHES//,/ }; do
+            sources+=("${IMAGE}:${TAG}-${arch}")
+          done
+          docker buildx imagetools create -t "${IMAGE}:${TAG}" "${sources[@]}"
+          echo "Pushed ${IMAGE}:${TAG}" >> "${GITHUB_STEP_SUMMARY}"

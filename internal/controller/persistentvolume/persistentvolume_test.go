@@ -17,6 +17,7 @@ package persistentvolume
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -25,8 +26,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	ctrl "github.com/ceph/ceph-csi/internal/controller"
 )
 
 func Test_shouldReconcileBasedOnDriver(t *testing.T) {
@@ -205,6 +209,126 @@ func Test_getVolumeAttributesClassParameters(t *testing.T) {
 				if got[k] != v {
 					t.Errorf("getVolumeAttributesClassParameters()[%s] = %s, want %s", k, got[k], v)
 				}
+			}
+		})
+	}
+}
+
+type fakeDiffIterateReconciler struct {
+	called bool
+	err    error
+}
+
+func (f *fakeDiffIterateReconciler) ReconcileDiffIterateFeatures(_ context.Context) error {
+	f.called = true
+
+	return f.err
+}
+
+func Test_reconcileDiffIterateFeatures(t *testing.T) {
+	t.Parallel()
+
+	const driver = "rbd.csi.ceph.com"
+	diffFeatures := "layering,deep-flatten,exclusive-lock,object-map,fast-diff"
+	errReconcile := errors.New("reconcile failed")
+
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to add scheme: %v", err)
+	}
+
+	newSC := func(name, provisioner, features string) *storagev1.StorageClass {
+		return &storagev1.StorageClass{
+			ObjectMeta:  metav1.ObjectMeta{Name: name},
+			Provisioner: provisioner,
+			Parameters:  map[string]string{imageFeaturesParam: features},
+		}
+	}
+	newPV := func(scName, features string) *corev1.PersistentVolume {
+		return &corev1.PersistentVolume{
+			ObjectMeta: metav1.ObjectMeta{Name: "pv-1"},
+			Spec: corev1.PersistentVolumeSpec{
+				StorageClassName: scName,
+				PersistentVolumeSource: corev1.PersistentVolumeSource{
+					CSI: &corev1.CSIPersistentVolumeSource{
+						Driver:           driver,
+						VolumeAttributes: map[string]string{imageFeaturesParam: features},
+					},
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name          string
+		pv            *corev1.PersistentVolume
+		volErr        error
+		wantReconcile bool
+		wantEvent     bool
+		wantErr       error
+	}{
+		{
+			name:          "StorageClass with features reconciles the image chain",
+			pv:            newPV("sc-diff", "layering"),
+			wantReconcile: true,
+		},
+		{
+			name:      "StorageClass without features alerts the admin",
+			pv:        newPV("sc-layering", diffFeatures),
+			wantEvent: true,
+		},
+		{
+			name:          "deleted StorageClass falls back to the volume attributes",
+			pv:            newPV("sc-deleted", diffFeatures),
+			wantReconcile: true,
+		},
+		{
+			name: "deleted StorageClass without features in volume attributes is skipped",
+			pv:   newPV("sc-deleted", "layering"),
+		},
+		{
+			name:          "StorageClass of another provisioner falls back to the volume attributes",
+			pv:            newPV("sc-other", diffFeatures),
+			wantReconcile: true,
+		},
+		{
+			name:          "reconcile errors are returned for a retry",
+			pv:            newPV("sc-diff", ""),
+			volErr:        errReconcile,
+			wantReconcile: true,
+			wantErr:       errReconcile,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cl := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(
+					newSC("sc-diff", driver, diffFeatures),
+					newSC("sc-layering", driver, "layering"),
+					newSC("sc-other", "other.csi.example.com", "layering"),
+				).
+				Build()
+			recorder := events.NewFakeRecorder(10)
+			r := &ReconcilePersistentVolume{
+				client:   cl,
+				config:   ctrl.Config{DriverName: driver},
+				recorder: recorder,
+			}
+			vol := &fakeDiffIterateReconciler{err: tt.volErr}
+
+			err := r.reconcileDiffIterateFeatures(context.TODO(), tt.pv, vol)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("reconcileDiffIterateFeatures() error = %v, want %v", err, tt.wantErr)
+			}
+			if vol.called != tt.wantReconcile {
+				t.Errorf("ReconcileDiffIterateFeatures() called = %t, want %t", vol.called, tt.wantReconcile)
+			}
+			if gotEvent := len(recorder.Events) > 0; gotEvent != tt.wantEvent {
+				t.Errorf("event recorded = %t, want %t", gotEvent, tt.wantEvent)
 			}
 		})
 	}

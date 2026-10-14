@@ -626,6 +626,30 @@ Additional Resources:
 * External Snapshot Metadata sidecar project:
   [repository](https://github.com/kubernetes-csi/external-snapshot-metadata)
 
+### Image features for efficient DiffIterate
+
+`NodeGetVolumeStats` and CBT use the RBD DiffIterate API, which is only
+efficient when every image in the clone chain of a volume has the
+`exclusive-lock`, `object-map` and `fast-diff` features enabled and a valid
+object map. Older releases created the temporary clone images and the
+images backing VolumeSnapshots without these features.
+
+The PersistentVolume controller (`--type=controller`) reconciles the image
+of existing RBD volumes and its immediate parent, one PersistentVolume at a
+time:
+
+* when the `imageFeatures` of the StorageClass do not include
+  `exclusive-lock`, `object-map` and `fast-diff`, a warning is logged and a
+  `MissingDiffIterateImageFeatures` event is reported on the StorageClass.
+  Recreate the StorageClass with these features to have the volumes
+  reconciled.
+* otherwise, the missing features are enabled on the immediate parent image
+  and on the volume image (existing features are preserved), and the object
+  maps of the parent snapshot, the parent image and the volume image are
+  rebuilt. When an object map is still invalid, the object map of
+  the volume image is rebuilt, and as last resort the parent image is flattened before rebuilding
+  the object maps. Unfinished work is retried.
+
 ## Kubernetes ServiceAccount Based Volume Access
 
 Ceph-CSI supports optionally restricting RBD volume

@@ -25,6 +25,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -43,10 +44,20 @@ import (
 
 // ReconcilePersistentVolume reconciles a PersistentVolume object.
 type ReconcilePersistentVolume struct {
-	client client.Client
-	config ctrl.Config
-	Locks  *util.IDLocker
+	client   client.Client
+	config   ctrl.Config
+	Locks    *util.IDLocker
+	recorder events.EventRecorder
 }
+
+const (
+	// imageFeaturesParam is the StorageClass parameter with the RBD image features.
+	imageFeaturesParam = "imageFeatures"
+
+	// missingDiffIterateFeaturesReason is the reason of the event that is
+	// reported when a StorageClass lacks the features for optimized DiffIterate.
+	missingDiffIterateFeaturesReason = "MissingDiffIterateImageFeatures"
+)
 
 var (
 	_ reconcile.Reconciler = &ReconcilePersistentVolume{}
@@ -159,47 +170,135 @@ func (r *ReconcilePersistentVolume) reconcilePV(ctx context.Context, obj runtime
 
 			return err
 		}
-	} else {
-		// The cgroup v2 QoS metadata is intentionally not propagated during
-		// clone/snapshot/mirroring, so it is lost once the omap is regenerated.
-		// Restore it from the PV's VolumeAttributesClass, reusing the connected
-		// volume returned by RegenerateJournal.
-		vacParams, err := r.getVolumeAttributesClassParameters(ctx, pv)
-		if err != nil {
-			log.ErrorLogMsg("failed to get VolumeAttributesClass parameters %v", err)
 
-			return err
-		}
+		return nil
+	}
 
-		rbdVol, err := rbd.RegenerateJournal(
-			pv.Spec.CSI.VolumeAttributes,
-			pv.Spec.ClaimRef.Name,
-			volumeHandler,
-			requestName,
-			pvcNamespace,
-			r.config.ClusterName,
-			r.config.InstanceID,
-			cr)
-		if err != nil {
-			log.ErrorLogMsg("failed to regenerate journal %s", err)
+	return r.reconcileRBDPV(ctx, pv, volumeHandler, requestName, pvcNamespace, cr)
+}
 
-			return err
-		}
-		defer rbdVol.Destroy(ctx)
+// reconcileRBDPV regenerates the journal of the RBD image of the PV and
+// reconciles its metadata and image features.
+func (r *ReconcilePersistentVolume) reconcileRBDPV(
+	ctx context.Context,
+	pv *corev1.PersistentVolume,
+	volumeHandler, requestName, pvcNamespace string,
+	cr *util.Credentials,
+) error {
+	// The cgroup v2 QoS metadata is intentionally not propagated during
+	// clone/snapshot/mirroring, so it is lost once the omap is regenerated.
+	// Restore it from the PV's VolumeAttributesClass, reusing the connected
+	// volume returned by RegenerateJournal.
+	vacParams, err := r.getVolumeAttributesClassParameters(ctx, pv)
+	if err != nil {
+		log.ErrorLogMsg("failed to get VolumeAttributesClass parameters %v", err)
 
-		if rbdVol.VolID != volumeHandler {
-			log.DebugLog(ctx, "volumeHandler changed from %s to %s", volumeHandler, rbdVol.VolID)
-		}
+		return err
+	}
 
-		err = rbdVol.RegenerateCgroupQoS(ctx, vacParams)
-		if err != nil {
-			log.ErrorLogMsg("failed to regenerate cgroup QoS %s", err)
+	rbdVol, err := rbd.RegenerateJournal(
+		pv.Spec.CSI.VolumeAttributes,
+		pv.Spec.ClaimRef.Name,
+		volumeHandler,
+		requestName,
+		pvcNamespace,
+		r.config.ClusterName,
+		r.config.InstanceID,
+		cr)
+	if err != nil {
+		log.ErrorLogMsg("failed to regenerate journal %s", err)
 
-			return err
-		}
+		return err
+	}
+	defer rbdVol.Destroy(ctx)
+
+	if rbdVol.VolID != volumeHandler {
+		log.DebugLog(ctx, "volumeHandler changed from %s to %s", volumeHandler, rbdVol.VolID)
+	}
+
+	err = rbdVol.RegenerateCgroupQoS(ctx, vacParams)
+	if err != nil {
+		log.ErrorLogMsg("failed to regenerate cgroup QoS %s", err)
+
+		return err
+	}
+
+	err = r.reconcileDiffIterateFeatures(ctx, pv, rbdVol)
+	if err != nil {
+		log.ErrorLogMsg("failed to reconcile DiffIterate image features of PV %s: %v", pv.Name, err)
+
+		return err
 	}
 
 	return nil
+}
+
+// diffIterateReconciler reconciles the image chain of a volume for optimized
+// DiffIterate operations.
+type diffIterateReconciler interface {
+	ReconcileDiffIterateFeatures(ctx context.Context) error
+}
+
+// reconcileDiffIterateFeatures enables the image features required for
+// optimized DiffIterate operations on the image chain of the PV, when the
+// StorageClass of the PV requests them. When the StorageClass lacks the
+// features, the admin is alerted to recreate the StorageClass and the image
+// chain is left untouched.
+func (r *ReconcilePersistentVolume) reconcileDiffIterateFeatures(
+	ctx context.Context,
+	pv *corev1.PersistentVolume,
+	vol diffIterateReconciler,
+) error {
+	sc, imageFeatures, err := r.getImageFeatures(ctx, pv)
+	if err != nil {
+		return err
+	}
+
+	if !rbd.HasDiffIterateFeatures(imageFeatures) {
+		scName := pv.Spec.StorageClassName
+		log.WarningLogMsg("StorageClass %q of PV %s has imageFeatures %q, which lack the features "+
+			"exclusive-lock, object-map and fast-diff required for optimized DiffIterate; "+
+			"recreate the StorageClass with these features", scName, pv.Name, imageFeatures)
+		if sc != nil && r.recorder != nil {
+			r.recorder.Eventf(sc, pv, corev1.EventTypeWarning, missingDiffIterateFeaturesReason,
+				"ReconcileImageFeatures",
+				"imageFeatures %q lack exclusive-lock, object-map and fast-diff required for optimized "+
+					"DiffIterate, recreate the StorageClass with these features", imageFeatures)
+		}
+
+		return nil
+	}
+
+	return vol.ReconcileDiffIterateFeatures(ctx)
+}
+
+// getImageFeatures returns the StorageClass of the PV together with its
+// imageFeatures parameter. When the StorageClass does not exist anymore, the
+// imageFeatures are taken from the volume attributes of the PV.
+func (r *ReconcilePersistentVolume) getImageFeatures(
+	ctx context.Context,
+	pv *corev1.PersistentVolume,
+) (*storagev1.StorageClass, string, error) {
+	fallback := pv.Spec.CSI.VolumeAttributes[imageFeaturesParam]
+	if pv.Spec.StorageClassName == "" {
+		return nil, fallback, nil
+	}
+
+	sc := &storagev1.StorageClass{}
+	err := r.client.Get(ctx, types.NamespacedName{Name: pv.Spec.StorageClassName}, sc)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, fallback, nil
+		}
+
+		return nil, "", fmt.Errorf("failed to get StorageClass %s: %w", pv.Spec.StorageClassName, err)
+	}
+
+	if sc.Provisioner != r.config.DriverName {
+		return nil, fallback, nil
+	}
+
+	return sc, sc.Parameters[imageFeaturesParam], nil
 }
 
 // getVolumeAttributesClassParameters returns the parameters of the
@@ -230,9 +329,10 @@ func (r *ReconcilePersistentVolume) getVolumeAttributesClassParameters(
 // newReconciler returns a ReconcilePersistentVolume.
 func newPVReconciler(mgr manager.Manager, config ctrl.Config) reconcile.Reconciler {
 	r := &ReconcilePersistentVolume{
-		client: mgr.GetClient(),
-		config: config,
-		Locks:  util.NewIDLocker(),
+		client:   mgr.GetClient(),
+		config:   config,
+		Locks:    util.NewIDLocker(),
+		recorder: mgr.GetEventRecorder("csi-omap-generator"),
 	}
 
 	return r

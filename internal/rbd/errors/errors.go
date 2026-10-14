@@ -70,6 +70,9 @@ var (
 	// ErrMounterUnknown is returned when the mounter type for a volume is not stored in metadata.
 	// This can happen for volumes created before mounter metadata tracking was added.
 	ErrMounterUnknown = errors.New("mounter type unknown")
+	// ErrDiffIterateNotReady is returned when the image chain of a volume is
+	// not ready for optimized DiffIterate operations after reconciliation.
+	ErrDiffIterateNotReady = errors.New("image chain is not ready for optimized DiffIterate")
 )
 
 // ErrorCode is an interface that defines a method to return an error code.

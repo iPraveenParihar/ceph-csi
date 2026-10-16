@@ -2611,31 +2611,59 @@ func (rv *rbdVolume) filterUnchangedMetadata(metadata map[string]string) (map[st
 }
 
 // unsetAllMetadata unset all the metadata from arg keys on RBD image.
+// The image is first opened read-only to find the keys that are present,
+// and only opened read-write when a removal is actually needed.
 func (rv *rbdVolume) unsetAllMetadata(keys []string) error {
+	allKeys := make([]string, 0, len(keys)+2)
+	allKeys = append(allKeys, keys...)
+	allKeys = append(allKeys, clusterNameKey, mounterKey)
+
+	toRemove, err := rv.filterMissingMetadata(allKeys)
+	if err != nil {
+		return err
+	}
+	if len(toRemove) == 0 {
+		return nil
+	}
+
 	image, err := rv.open()
 	if err != nil {
 		return err
 	}
 	defer image.Close() //nolint:errcheck // not a critical failure
 
-	for _, key := range keys {
-		err := image.RemoveMetadata(key)
+	for _, key := range toRemove {
+		err = image.RemoveMetadata(key)
 		if err != nil && !errors.Is(err, librbd.ErrNotExist) {
 			return fmt.Errorf("failed to unset metadata key %q on %q: %w", key, rv, err)
 		}
 	}
 
-	err = image.RemoveMetadata(clusterNameKey)
-	if err != nil && !errors.Is(err, librbd.ErrNotExist) {
-		return fmt.Errorf("failed to unset metadata key %q on %q: %w", clusterNameKey, rv, err)
-	}
-
-	err = image.RemoveMetadata(mounterKey)
-	if err != nil && !errors.Is(err, librbd.ErrNotExist) {
-		return fmt.Errorf("failed to unset metadata key %q on %q: %w", mounterKey, rv, err)
-	}
-
 	return nil
+}
+
+// filterMissingMetadata returns the subset of keys that are present in the
+// metadata of the RBD image.
+func (rv *rbdVolume) filterMissingMetadata(keys []string) ([]string, error) {
+	image, err := rv.openReadOnly()
+	if err != nil {
+		return nil, err
+	}
+	defer image.Close() //nolint:errcheck // not a critical failure
+
+	present := make([]string, 0, len(keys))
+	for _, key := range keys {
+		_, err = image.GetMetadata(key)
+		if errors.Is(err, librbd.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to get metadata key %q on %q: %w", key, rv, err)
+		}
+		present = append(present, key)
+	}
+
+	return present, nil
 }
 
 // GetID returns the ID of the volume.

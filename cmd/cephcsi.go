@@ -36,6 +36,7 @@ import (
 	nvmeofdriver "github.com/ceph/ceph-csi/internal/nvmeof/driver"
 	rbddriver "github.com/ceph/ceph-csi/internal/rbd/driver"
 	"github.com/ceph/ceph-csi/internal/util"
+	"github.com/ceph/ceph-csi/internal/util/abort"
 	"github.com/ceph/ceph-csi/internal/util/log"
 	"github.com/ceph/ceph-csi/pkg/util/kernel"
 )
@@ -203,6 +204,10 @@ func printVersion() {
 }
 
 func main() {
+	// make sure abort() from native Ceph libraries terminates the process,
+	// also when running as PID 1 in a container
+	abort.HandleSignal()
+
 	if conf.Version {
 		printVersion()
 		os.Exit(0)
